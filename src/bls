@@ -230,11 +230,6 @@ exec_backup(){
 
 	[[ $BLS_CONFIG_TYPE = system ]] && check_efi_partitions backup
 
-	# clear
-
-	# clear
-
-	# clear
 	echo
 	run_backup
 }
@@ -281,13 +276,13 @@ exec_list(){
 
 	echo
 	free_samba_mount
-	# select_smb_server
-	# select_smb_share
-	SAMBA_IP=192.168.30.50
-	SAMBA_SERVER=maestral-backup
-	SAMBA_SHARE=backup
-	SAMBA_LOGIN=""
-	SAMBA_PASSWD=""
+	select_smb_server
+	select_smb_share
+	# SAMBA_IP=192.168.30.50
+	# SAMBA_SERVER=maestral-backup
+	# SAMBA_SHARE=backup
+	# SAMBA_LOGIN=""
+	# SAMBA_PASSWD=""
 
 	mount_smb_share
 
