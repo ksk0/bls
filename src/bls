@@ -32,6 +32,7 @@ BLS_LOCK=/run/bls.lock
 BLS_FSTAB=/etc/fstab
 BLS_RESTORE_DIR=/mnt/bls-restore
 BLS_LAST_MOUNTS=""
+CHECK_FOR_FAILES=1
 
 
 
@@ -239,6 +240,8 @@ exec_restore(){
 	check_for_bls_instance
 	get_run_mode
 
+	BLS_RUN_MODE=rescue
+
 	echo
 	free_samba_mount
 	free_restore_mounts
@@ -252,6 +255,7 @@ exec_restore(){
 	# SAMBA_PASSWD=""
 
 	mount_smb_share
+	remove_failed_backups
 
 	echo
 	select_backup_host
@@ -267,7 +271,7 @@ exec_restore(){
 	# echo "   $BLS_RESTORE"
 	# echo
 
-
+	confirm_restore
 	run_restore
 }
 
@@ -286,8 +290,11 @@ exec_list(){
 	# SAMBA_PASSWD=""
 
 	mount_smb_share
+	remove_failed_backups
 
 	select_backup_host
+
+	echo
 	local backup_list=$(list_backups)
 
 	local space=("${(@f)$(
@@ -407,6 +414,37 @@ exec_test(){
 ###############################################
 # backup/restore functions
 #
+confirm_restore(){
+	local host="${${BLS_RESTORE/#${SAMBA_MOUNT}\/}//%\/*}"
+	local time="${${BLS_RESTORE/#${SAMBA_MOUNT}\/}/#*\/}"
+	local desc=$(head -1 $BLS_RESTORE/.description)
+	time=${${time/_/ }/x/:}
+
+	print_off ""
+	print_off "${color_yellow}You have selected following backup:${color_none}"
+	print_off "${color_yellow}--------------------------------------${color_none}"
+	print_off "${color_yellow}Server: ${color_none}${SAMBA_SERVER}"
+	print_off "${color_yellow}Share:  ${color_none}${SAMBA_SHARE}"
+	print_off ""
+	print_off "${color_yellow}System name: ${color_none}${host}"
+	print_off "${color_yellow}Backup time: ${color_none}${time}"
+	print_off "${color_yellow}Description: ${color_none}${desc}"
+	print_off ""
+
+	local yesno
+
+	echo
+	while true; do
+		print_off -n "${move_up}Do you want to restore the system [yes/NO]: [0K"
+		read yesno
+		[[ ${(L)yesno} = yes ]] && return
+		break
+	done
+
+	print_box "Abondoning restoration of the system!"
+	exit 1
+}
+
 run_backup(){
 	if [[ $BLS_CONFIG_TYPE = system ]]; then
 		backup_system
@@ -460,6 +498,7 @@ backup_system(){
 	mount_smb_share
 	remove_failed_backups
 
+	CHECK_FOR_FAILES=1
 	backup_system_files $desc
 
 }
@@ -860,6 +899,7 @@ system_exclusion_list(){
 }
 
 remove_failed_backups(){
+	[[ $CHECK_FOR_FAILES -ne 1 ]] && return
 	[[ -n $SAMBA_MOUNT ]] || return 0
 	[[ -d $SAMBA_MOUNT ]] || return 0
 
@@ -886,6 +926,8 @@ remove_failed_backups(){
 
 		progress_meter $! "Checking for failed backups"
 	)}")
+
+	CHECK_FOR_FAILES=0
 
 	[[ -z $failed_backups ]] && cd $cwd && return
 
@@ -936,7 +978,7 @@ list_backups(){
 			done
 		) &
 
-		progress_meter $! "Createing list of backups"
+		progress_meter $! "Creating list of backups"
 
 	)}")
 
@@ -1831,10 +1873,12 @@ format_restore_partitions(){
 				error_msg=$(
 					if [[ $fstype =~ '^(fat|vfat|msdos)' ]]; then
 						[[ -n $label ]] && label=("-n" "$label")
-						mkfs.$fstype $label -i ${uuid/-} $part
+						mkfs.$fstype $label -i ${uuid/-} $part 3>&1 >/dev/null 2>&3
+
 					elif [[ $fstype =~ '^ext' ]]; then
 						[[ -n $label ]] && label=("-L" "$label")
 						mkfs.$fstype $label -Fq -U $uuid $part 3>&1 >/dev/null 2>&3
+
 					fi |
 					grep -v \
 						-e 'Dirty bit is set' \
@@ -2450,6 +2494,7 @@ create_config_file(){
 }
 
 
+	remove_failed_backups
 
 ###############################################
 # samba functions
