@@ -475,8 +475,6 @@ restore_system(){
 	mount_restore_devices
 
 	restore_system_files
-	restore_partition_labels
-
 	mirror_efi_parititons
 
 	BLS_LAST_MOUNTS=""
@@ -1832,24 +1830,16 @@ format_restore_partitions(){
 
 				error_msg=$(
 					if [[ $fstype =~ '^(fat|vfat|msdos)' ]]; then
-						{
-							mkfs.$fstype -i ${uuid/-} $part
-							if [[ -n $label ]]; then
-								dosfslabel $part $label | 
-								grep -v \
-									-e 'Dirty bit is set' \
-									-e 'Automatically removing dirty bit' \
-									-e 'lowercase labels might not work properly'
-							fi
-						} 3>&1 >/dev/null 2>&3
+						[[ -n $label ]] && label=("-n" "$label")
+						mkfs.$fstype $label -i ${uuid/-} $part
 					elif [[ $fstype =~ '^ext' ]]; then
-						{
-							mkfs.$fstype -Fq -U $uuid $part
-							if [[ -n $label ]]; then
-								e2label $part $label
-							fi
-						} 3>&1 >/dev/null 2>&3
-					fi
+						[[ -n $label ]] && label=("-L" "$label")
+						mkfs.$fstype $label -Fq -U $uuid $part 3>&1 >/dev/null 2>&3
+					fi |
+					grep -v \
+						-e 'Dirty bit is set' \
+						-e 'Automatically removing dirty bit' \
+						-e 'lowercase labels might not work properly'
 				)
 
 				[[ -n $error_msg ]] && echo $error_msg && break
