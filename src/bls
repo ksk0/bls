@@ -829,7 +829,7 @@ system_exclusion_list(){
 	)}")
 
 	if [[ ! $tar_exclude =~ '^Failed with (item|root):' ]]; then
-		tar_exclude+=("$BLS_SAMBA" "$BLS_SAMBA/*")
+		tar_exclude+=("$SAMBA_MOUNT" "$SAMBA_MOUNT/*")
 		BLS_BACKUP_EXCLUDE=("${(@o)tar_exclude}")
 		return
 	fi
