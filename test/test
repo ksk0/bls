@@ -1,0 +1,8 @@
+#!/bin/bash
+
+cwd=$(pwd)
+cd ..
+make install || exit 1
+cd $cwd
+
+bls test $@

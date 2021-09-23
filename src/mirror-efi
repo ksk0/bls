@@ -1,0 +1,312 @@
+#!/usr/bin/zsh
+
+script_init(){
+	color_yellow='[33m'
+	color_none='[0m'
+}
+
+# duplicate original efi partitions to
+# other existing efi partitions (those
+# which  share same  PARTUUID or those
+# which are listed by 'efibootmgr' utility)
+#
+mirror_efi(){
+	local efi_org=$1; shift
+	local mirrors=($(find_mirror_efis $efi_org))
+
+	# find if original EFI partiiton is mounted and
+	# where. If not mount it temporary
+	#
+	local tmp_mpoints=()
+	local org_mpoint
+	local error_msg
+
+	org_mpoint=$(
+		mount |
+		grep -E -e "^${efi_org} on " |
+		sed -e 's/.* on //' |
+		sed -e 's/ type .*//'
+	)
+
+	if [[ -z $org_mpoint ]]; then
+		org_mpoint=/tmp/efi-org
+
+		error_msg=$(
+			{
+				[[ -d $org_mpoint ]] ||
+				mkdir $org_mpoint &&
+				mount $efi_org $org_mpoint
+			} 3>&1 >/dev/null 2>&3
+		)
+
+		if [[ -n $error_msg ]]; then
+			rmdir $org_mpoint >/dev/null 2>&1
+
+			print_box "Failed to mount original EFI partition $efi_org"
+			print_off ""
+			print_off "${color_yellow}Error: ${color_none}$error_msg"
+
+			exit 1
+		fi >&2
+
+		tmp_mpoints=(/tmp/efi-org)
+	fi
+
+	[[ -z $mirrors ]] && return
+
+	local mirror
+	local new_mpoint=/mnt/efi-mirror
+
+	for mirror in $mirrors; do
+		error_msg=$(
+			{
+				[[ -d $new_mpoint ]] ||
+				mkdir $new_mpoint &&
+				mount $mirror $new_mpoint
+			} 3>&1 >/dev/null 2>&3
+		)
+
+		if [[ -n $error_msg ]]; then
+			rmdir $new_mpoint >/dev/null 2>&1
+
+			print_box "Failed to mount mirror EFI partition $mirror"
+			print_off ""
+			print_off "${color_yellow}Error: ${color_none}$error_msg"
+
+			break
+		fi
+
+		# clean up mirror EFI
+		#
+		{
+			cd $new_mpoint
+			rm -rf $(ls -1) 
+		} >/dev/null 2>&1
+
+		error_msg=$(
+			cd $org_mpoint
+			tar cf - * | (cd $new_mpoint; tar xf -) 2>&1
+		)
+
+
+		{
+			cd /
+			umount $new_mpoint &&
+			rmdir $new_mpoint
+		} >/dev/null 2>&1
+
+		if [[ -n $error_msg ]]; then
+			print_box "Failed to mirror EFI partiiton"
+			print_off ""
+			print_off "${color_yellow}Source:      ${color_none}$efi_org"
+			print_off "${color_yellow}Destination: ${color_none}$mirror"
+			print_off "${color_yellow}Error msg:   ${color_none}${error_msg}"
+			print_off ""
+
+			break
+		fi >&2
+
+
+	done
+
+	[[ -z $tmp_mpoints ]] && return
+
+	local mpoint
+
+	for mpoint in $tmp_mpoints; do
+		umont $mpoint
+		rmdir $mpoint
+	done >/dev/null 2>&1
+
+}
+
+find_mirror_efis(){
+	local efi_org=($1)
+	local efi_size=$(blockdev --getsize64 $efi_org)
+
+	local org_efi_uid=($(
+		blkid $efi_org |
+		awk '{
+			sub (/.*PARTUUID="/,"",$0)
+			sub(/".*/,"",$0)
+			print
+		}'
+	))
+
+	# list efi partitions defined in efibootmgr table
+	#
+	local efi_parts=("${(@f)$(
+		efibootmgr -v |
+		grep '\sHD('  |
+		sed -E -e 's/^[^,]+,[^,]+,//' |
+		sed -e 's/,.*//'
+	)}")
+
+	{
+		echo EFI PARTS:
+		echo $efi_parts
+		echo
+		echo ORG EFI PARTUUID:
+		echo $org_efi_uid
+		echo
+	} >/dev/null
+
+	local missing_efis=("${(@)efi_parts:|org_efi_uid}")
+
+	{
+		echo MISSING:
+		echo $missing_efis
+		echo
+	} >/dev/null
+
+	# extract EFI partitions with PARTUUID different
+	# than original EFI partition. Take only those
+	# whose size is identical to original EFI parti-
+	# tion.
+	#
+	local other_efis=("${(@f)$(
+		local other
+		local missing
+		local miss_size
+
+		for other in $missing_efis; do
+			blkid |
+			grep "PARTUUID=\"${other}\"" |
+			awk -F: '{print $1}' |
+
+			while read missing; do
+				miss_size=$(blockdev --getsize64 $missing)
+				[[ $miss_size -eq $efi_size ]] && echo $missing
+			done
+		done
+	)}")
+
+	# there is posibility that original EFI partition
+	# has a 'doppelganger', eg. EFI partition with same
+	# PARTUUID. If any exist find those. Take only those
+	# whose size is identical to original EFI partition.
+	#
+	local mirror_efis=("${(@f)$(
+		local missing
+		local miss_size
+
+		blkid  |
+		grep "PARTUUID=\"${org_efi_uid}\"" |
+		awk -F: '{print $1}' |
+
+		while read missing; do
+			miss_size=$(blockdev --getsize64 $missing)
+			[[ $miss_size -eq $efi_size ]] && echo $missing
+		done
+	)}")
+
+	# echo all partitions which should be mirrored
+	# onto.
+	#
+	echo $other_efis ${(@)mirror_efis:|efi_org}
+}
+
+
+###############################################
+# helper functions
+#
+print_box(){
+	local color='color_yellow'
+	local width=60
+	local align=center
+	local offset=3
+
+	local COLOR WIDTH ALIGH BORDER OFFSET
+
+	zparseopts -E -D -A ARGS \
+		-color:=COLOR   \
+	    -width:=WIDTH   \
+		-align:=ALIGN   \
+		-offset:=OFFSET
+
+	[[ -n $COLOR  ]] && color="color_${COLOR[2]#=}"
+	[[ -n $WIDTH  ]] && width=${WIDTH[2]#=}
+	[[ -n $ALIGN  ]] && align=${ALIGN[2]#=}
+	[[ -n $OFFSET ]] && offset=${OFFSET[2]#=}
+
+	local empty=""
+	local lines
+
+	if [[ $# -eq 0 ]]; then
+		lines=("${(@f)$(cat)}")
+	else
+		lines=("$@")
+	fi
+
+	width=$((width - offset))
+
+	echo
+	echo -n ${(P)color}
+	echo "${(l:$offset:)empty}${(l:$width::#:)empty}"
+	echo "${(l:$offset:)empty}#${(l:$((width - 2)):)empty}#"
+
+	local line l_width l_offset r_offset
+
+	for line in "${(@)lines}"; do
+
+		if [[ $align = center ]]; then
+			l_offset=$(((width - $#line - 2) / 2))
+			r_offset=$((width - $#line - l_offset - 2))
+		elif [[ $align = left ]]; then
+			l_offset=1
+			r_offset=$((width - $#line - 3))
+		else
+			l_offset=$((width - $#line - 3))
+			r_offset=1
+		fi
+
+		echo -n "${(l:$offset:: :)empty}#"
+		echo -n "${(l:$l_offset:)empty}"
+		echo -n $line
+		echo -n "${(l:$r_offset:)empty}#"
+		echo
+	done
+
+	echo "${(l:$offset:)empty}#${(l:$((width - 2)):)empty}#"
+	echo ${(l:$offset:: :)empty}${(l:$width::#:)empty}
+	echo -n ${color_none}
+	echo
+}
+
+print_off(){
+	local offset=3
+	local OFFSET
+	local empty=""
+
+	zparseopts -E -D -A ARGS \
+		-o:=OFFSET \
+		-offset:=OFFSET
+
+	[[ -n $OFFSET ]] && offset=${OFFSET[2]#=}
+
+	local echo_args=()
+	local arg
+
+	for arg in $@; do
+		[[ $arg =~ '^-[^-]' ]] && echo_args+=("$arg") && shift 
+		break
+	done
+
+	local lines
+
+	if [[ $# -eq 0 ]]; then
+		lines=("${(@f)$(cat)}")
+	else
+		lines=("$@")
+	fi
+
+	local line
+
+	for line in "${(@)lines}"; do
+		echo $echo_args "${(l:$offset:)empty}$line"
+	done
+}
+
+
+script_init
+mirror_efi $1
