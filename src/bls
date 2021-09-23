@@ -2747,7 +2747,7 @@ select_smb_share(){
 	echo
 
 	smb_share=$(
-		local shares=("Server;Share;Description" "${smb_shares#*;}")
+		local shares=("Share;Description" "${smb_shares#*;*;}")
 
 		select_menu_item \
 			"Select share [${color_yellow}none${color_none}]: " \
