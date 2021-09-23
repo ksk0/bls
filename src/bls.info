@@ -1,0 +1,168 @@
+
+   BLS - Backup Linux system
+
+   synopsis:
+      bls is tool for backing up of Linux system and files. It is made with
+      following limitations:
+
+        - it only runs on UEFI systems
+        - there can be multiple EFI system partitions
+          but they MUST have same content.
+        - it only backs up ext filesystems
+          (btrfs, zfs and ntfs are not supported)
+
+        - backuped files are stored in single gziped tar ball
+        - there are no incremental backups
+        - tar file will/must be stored on samba share
+        - it is intended for Debian based system
+
+          (later is consequence that on installation of the scrip to the
+           system, missing packages are also installed. That can change
+           in future.)
+
+   tasks:
+      To create backup, 'task' has to be created in config file. Each
+      task can be of 'system' or 'data' type. Task of type 'system' is
+      used to backup entire system, while task of type 'data' is used
+      to backup individual files/directories.
+
+      Main idea is that, 'system' task is used to backup/restore system,
+      while 'data' should be used to backup individual files, which 
+      should be preserved in later stage of system. Files like:
+
+          /etc/passwd
+          /etc/group
+          /etc/shadow
+          /etc/fstab
+          .
+          .
+          .
+
+      'system' task can be only restored from liveCD, while 'data' task
+      can only be restored from running system (or chrooted one).
+
+      Apart from 'type' for each 'task' some other parameters could be
+      defined. More on that in config section of this info.
+
+
+
+   backup of the system:
+      When backing up the system, all files beneath root directory ('/')
+      will be backed up. Exceptions to that are:
+
+         /proc
+         /sys
+         /dev
+         /tmp
+         /run
+         /var/tmp
+
+        
+      User can also give a separate list of directories and files which
+      should not be backed up (like /home and /data).
+
+      Content of any director given for exclusion will not be backedup,
+      while directory itself will be. Idea is that on restoration of
+      a system, those directories will be recreated. (usually those
+      directories are mount points for filesystems).
+
+      Before backup commence, script will mount following filesystems 
+      (if not already mounted):
+
+        - any EFI system partition listed in '/etc/fstab'
+        - other filesystems explicitly demanded by user and also
+          defined in '/etc/fstab'
+
+
+      Script will check if existing mounts correspond with those defined
+      in fstab, and if not, execution will be aborted (CHECK THIS !!!).
+
+      If backup is interrupted, any files on server will be deleted.
+
+
+   restoration of the system:
+      System can be restored only from liveCD, and only on same system
+      backup has been made from. Restore script will check for partitions
+      with matching UUIDs of the original one. If not found execution will
+      be aborted.
+
+      Before original files are restored, necessary partitions will be
+      formatted, preserving UUIDs (which by default are changed when
+      partition is formatted).
+
+      Partitions which will be reformatted, are those which were demanded
+      to be mounted during backup of the system, mainly:
+
+        - root partition ('/')
+        - all EFI system partitions listed in 'fstab'
+        - filesystems mounted by explicit demand of a user
+
+
+      After files are restored, content of EFI system partition will
+      be copied to other existing EFI partitions. Other EFI partitions
+      will be identified as following:
+
+        - they are listed as boot partitions in EFI bios
+        - they have same PARTUUID number as main EFI partition
+        - they also must be of same size as main EFI partition
+
+
+      This procedure assumes that all EFI partitions have same content.
+      This is case, when multiple disk being able to boot up the system
+      are present (as in case when md raid is used for root filesystem).
+
+
+   config file:
+      Config file is '/etc/bls.conf'. It's structure is similar to 'ini' 
+      file. It consist of multiple 'blocks', where each has set of 'keys',
+      and each key can have one or more 'values', with each new value in
+      separate line (entire content of line constitutes value text). Values
+      can be souranded with apostrophes but can not span multiple lines.
+
+      Comments start with '#'.
+
+         # this is comment
+         #
+         [ block_1 ]
+
+           # this is also comment
+           #
+           key_1: value_1    # comment for value_1
+                  value_2    # comment for value_2
+                  value_3    # comment for value_3
+
+           key_2: "value_2_1 and some more"
+                  'value_2_2 and also some more'
+                   value_2_3 with extras
+
+      Block name is 'task' name and can be any text without spaces. Keys
+      are predefined, and are as following:
+
+        type      - type of task, can be 'system' or 'data'
+        mount     - mount points which should be mounted during backup
+        exclude   - file, directories and file patterns which should be
+                    excluded from backup
+
+      Of those, only 'type' is necessary to define. Other will include
+      minimum values by default (for 'system' backup: excluded directories
+      and mounted filesystems, as explained above).
+
+      Typical configuration for 'system' backup could be:
+
+         # task definition (block name is also
+         # task name).
+         #
+         [ system_backup ]
+
+           # task type definition
+           # this is necessary
+           #
+           type:    system
+
+           mount:   /var/syste_files    # this is mount point of some
+                                        # filesystem which we assume is
+                                        # necessary for full system
+                                        # backup & restoration.
+           exclude: /home
+                    /data
+
