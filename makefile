@@ -106,7 +106,6 @@ uninstall: .run_as_root .empty_echo .uninstall_files
 	@chmod 755 ${root_dir}${bin_dir}/${script}
 	@[ -z ${has_bash} ] || cp src/${bash_complete} ${root_dir}/${bash_complete_dir}/${script}
 	@[ -z ${has_zsh}  ] || cp src/${zsh_complete}  ${root_dir}/${zsh_complete_dir}/_${script}
-	@echo ${root_dir}/${zsh_complete_dir}/_${script}
 	@echo DONE
 
 .uninstall_files:
