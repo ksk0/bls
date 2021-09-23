@@ -420,7 +420,7 @@ run_restore(){
 	local task=$(cat $BLS_RESTORE/.bls-backup)
 
 	if [[ $task =~ "^system:" ]]; then
-		resture_system
+		restore_system
 	else
 		print_off ""
 		print_off "Restoring data"
@@ -475,6 +475,7 @@ restore_system(){
 	mount_restore_devices
 
 	restore_system_files
+	restore_partition_labels
 
 	mirror_efi_parititons
 
@@ -1818,20 +1819,35 @@ format_restore_partitions(){
 			)}")
 
 			local fstype
+			local label
 			local part
 			local uuid
 			local error_msg
 
 			for m_path in ${(ok)partitions}; do
 				part=$partitions[$m_path]
+				label=$(lsblk $part -no LABEL)
 				fstype=$(lsblk $part -no FSTYPE)
 				uuid=$BLS_RESTORE_MOUNTS[$m_path]
 
 				error_msg=$(
 					if [[ $fstype =~ '^(fat|vfat|msdos)' ]]; then
-						mkfs.$fstype -i ${uuid/-} $part 3>&1 >/dev/null 2>&3
+						{
+							mkfs.$fstype -i ${uuid/-} $part
+							if [[ -n $label ]]; then
+								dosfslabel $part $label | 
+								grep -v \
+									-e 'Dirty bit is set' \
+									-e 'Automatically removing dirty bit'
+							fi
+						} 3>&1 >/dev/null 2>&3
 					elif [[ $fstype =~ '^ext' ]]; then
-						mkfs.$fstype -Fq -U $uuid $part 3>&1 >/dev/null 2>&3
+						{
+							mkfs.$fstype -Fq -U $uuid $part
+							if [[ -n $label ]]; then
+								e2label $part $label
+							fi
+						} 3>&1 >/dev/null 2>&3
 					fi
 				)
 
