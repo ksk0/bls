@@ -255,7 +255,6 @@ exec_restore(){
 	mount_smb_share
 	remove_failed_backups
 
-	echo
 	select_backup_host
 	select_backup
 
@@ -290,7 +289,7 @@ exec_list(){
 	mount_smb_share
 	remove_failed_backups
 
-	select_backup_host
+	select_backup_host all
 
 	echo
 	local backup_list=$(list_backups)
@@ -343,11 +342,12 @@ exec_mount(){
 	free_samba_mount
 	select_smb_server
 	select_smb_share
-	SAMBA_IP=192.168.30.50
-	SAMBA_SERVER=maestral-backup
-	SAMBA_SHARE=backup
-	SAMBA_LOGIN=""
-	SAMBA_PASSWD=""
+	# SAMBA_IP=192.168.30.50
+	# SAMBA_SERVER=maestral-backup
+	# SAMBA_SHARE=backup
+	# SAMBA_LOGIN=""
+	# SAMBA_PASSWD=""
+
 
 	mount_smb_share
 
@@ -394,6 +394,7 @@ exec_chroot(){
 
 	typeset -gA BLS_RESTORE_MOUNTS=("${(@f)$(cat $restore_mounts)}")
 
+	echo
 	mount_restore_devices
 	mount_chroot_resources
 
@@ -404,7 +405,7 @@ exec_chroot(){
 }
 
 exec_test(){
-	exec_restore
+	exec_mount
 }
 
 
@@ -955,7 +956,11 @@ list_backups(){
 			local size
 			local bdir
 
-			echo ${(j:\n:)${(@M)BLS_BACKUP_LIST:#${BLS_BACKUP_HOST}/*}/#/${SAMBA_MOUNT}/} |
+			if [[ $BLS_BACKUP_HOST = '*' ]]; then
+				echo ${(j:\n:)${(@)BLS_BACKUP_LIST/#/${SAMBA_MOUNT}/}}
+			else
+				echo ${(j:\n:)${(@M)BLS_BACKUP_LIST:#${BLS_BACKUP_HOST}/*}/#/${SAMBA_MOUNT}/}
+			fi |
 
 			sort -V |
 
@@ -2492,7 +2497,6 @@ create_config_file(){
 }
 
 
-	remove_failed_backups
 
 ###############################################
 # samba functions
@@ -2500,16 +2504,25 @@ create_config_file(){
 get_smb_version(){
 	local server=$1
 
-	nmap -n -p 445 --script smb-protocols $server |\
+	local version=$(
+		nmap -n -Pn -p 445 \
+			--unprivileged \
+			--script smb-protocols \
+			$server |\
 
-	awk '
-		/   dialects:/{show = 1; next}
-		show {
-			if ($1 == ""){show = 0; next}
-			version=$2
-		}
-		END {print version}
-	'
+		awk '
+			/   dialects:/{show = 1; next}
+			show {
+				if ($1 == ""){show = 0; next}
+				version=$2
+			}
+			END {print version}
+		'
+	)
+
+	[[ -z $version ]] && version="2.0"
+
+	echo $version
 }
 
 free_samba_mount(){
@@ -2781,7 +2794,6 @@ select_smb_share(){
 	fi
 
 	echo
-
 	smb_shares=("${(@f)$(
 		collect_server_shares $SAMBA_IP $smb_login $smb_password &
 		progress_meter $! "Collecting server shares"
@@ -2799,7 +2811,7 @@ select_smb_share(){
 	echo
 
 	smb_share=$(
-		local shares=("Share;Description" "${smb_shares#*;*;}")
+		local shares=("Share;Description" "${(@)smb_shares#*;*;}")
 
 		select_menu_item \
 			"Select share [${color_yellow}none${color_none}]: " \
@@ -2930,14 +2942,25 @@ select_backup_host(){
 		return
 	fi
 
+	local all_hosts
+
+	[[ $1 = all ]] && all_hosts=("   " "backups from all systems")
+
 	local host=$(
 		select_menu_item \
 			"Select backup host [${color_yellow}none${color_none}]: " \
 			"" \
-			"Backedup host name" $hosts
+			"Backedup host name" $hosts $all_hosts
 	)
 
-	[[ -n $host ]] && BLS_BACKUP_HOST=$hosts[$host] && return
+	if [[ -n $host ]]; then
+		if [[ $host -gt $#hosts ]]; then
+			BLS_BACKUP_HOST='*'
+		else
+			BLS_BACKUP_HOST=$hosts[$host]
+		fi
+		return
+	fi
 
 	print_off ""
 	print_box "You have not selected any host!"
@@ -2959,7 +2982,13 @@ collect_smb_servers(){
 	# get IPs of samba servers
 	#
 	local smb_servers=($(
-		nmap -n -Pn --open -p 445 $networks |
+		
+		nmap -n -Pn --unprivileged --open -p 445 \
+			--initial-rtt-timeout=100ms  \
+			--max-rtt-timeout=100ms  \
+			--max-retries=1 \
+			--min-parallelism=50 \
+			$networks |
 			awk '
 				/scan report for/{
 					sub(/[(]/,"",$NF)
@@ -2977,7 +3006,7 @@ collect_smb_servers(){
 	for smb_ip in $smb_servers; do
 		smb_name=$(timeout 0.5 nmblookup -A $smb_ip | awk '/<00> -  /{print $1}')
 		[[ -n $smb_name ]] && echo "${smb_ip};${(L)smb_name}"
-	done
+	done | sort -t\; -k2
 }
 
 collect_server_shares(){
