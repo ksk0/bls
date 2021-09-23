@@ -668,7 +668,7 @@ backup_system_files(){
 				
 				Backup dir:${color_none} ${backup_dir}${color_yellow}
 				File name:${color_none}  system-backup.files
-
+				${(color_none}
 			EOF
 
 			SAMBA_MOUNT=""
