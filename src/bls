@@ -240,8 +240,6 @@ exec_restore(){
 	check_for_bls_instance
 	get_run_mode
 
-	BLS_RUN_MODE=rescue
-
 	echo
 	free_samba_mount
 	free_restore_mounts
