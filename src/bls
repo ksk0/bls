@@ -1838,7 +1838,8 @@ format_restore_partitions(){
 								dosfslabel $part $label | 
 								grep -v \
 									-e 'Dirty bit is set' \
-									-e 'Automatically removing dirty bit'
+									-e 'Automatically removing dirty bit' \
+									-e 'lowercase labels might not work properly'
 							fi
 						} 3>&1 >/dev/null 2>&3
 					elif [[ $fstype =~ '^ext' ]]; then
