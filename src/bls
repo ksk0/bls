@@ -955,7 +955,7 @@ list_backups(){
 # clear cache
 #
 clear_apt_cache(){
-	echo apt clean >/dev/null 2>&1 &
+	apt clean >/dev/null 2>&1 &
 	progress_meter $! "Clearing apt cache"
 }
 
@@ -966,7 +966,7 @@ clear_snap_cache(){
 		snap list --all |
 		awk '$NF ~ /disabled/{print $1 " " $3}' |
 		while read snapname revision; do
-			echo snap remove "$snapname" --revision="$revision" >/dev/null 2>&1
+			snap remove "$snapname" --revision="$revision" >/dev/null 2>&1
 		done
 	) &
 	progress_meter $! "Clearing snap cache"
