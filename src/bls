@@ -254,6 +254,7 @@ exec_restore(){
 	mount_smb_share
 
 	echo
+	select_backup_host
 	select_backup
 
 	# BLS_RESTORE="/mnt/bls-samba/maestral-test/2021-09-20_10x02"
@@ -398,7 +399,7 @@ exec_chroot(){
 }
 
 exec_test(){
-	exec_info
+	exec_restore
 }
 
 
@@ -904,6 +905,8 @@ remove_failed_backups(){
 list_backups(){
 	local header=("Host;Task;Type; Size;Date;Hour;Description")
 
+	collect_backups
+
 	local backups=("${(@f)$(
 		(
 			local backup
@@ -921,7 +924,6 @@ list_backups(){
 				task=$(cat $backup/.bls-backup)
 				desc=$(cat $backup/.description)
 				size=$(du -ms $backup/system-image.tar.gz 2>/dev/null | awk '{printf "%.1f\n", $1 / 1024}')
-				# size=$(du -ms $backup 2>/dev/null | awk '{printf "%.1f\n", $1 / 1024}')
 
 				[[ -n $size ]] && size="${size}G"
 
@@ -2776,7 +2778,7 @@ select_smb_share(){
 }
 
 select_backup(){
-	local backups=("Host;Task;Date;Hour;Description")
+	local backups=("Task;Date;Hour;Description")
 	local backup_type
 
 	if [[ $BLS_RUN_MODE = 'rescue' ]]; then
@@ -2785,10 +2787,18 @@ select_backup(){
 		backup_type='data'
 	fi
 
+	collect_backups
+
 	local backup_dirs=("${(@f)$(
-		find $SAMBA_MOUNT -name .done |
-			sort -V |
-			sed -e 's:\/.done$::'
+		local backup
+
+		echo ${(j:\n:)${(@M)BLS_BACKUP_LIST:#${BLS_BACKUP_HOST}/*}/#/${SAMBA_MOUNT}/} |
+
+		while read backup; do
+			task=$(cat $backup/.bls-backup)
+			[[ $task =~ "^${backup_type}:" ]] && echo $backup
+		done |
+		sort -V
 	)}")
 
 	backups+=("${(@f)$(
@@ -2801,15 +2811,13 @@ select_backup(){
 			task=$(cat $backup/.bls-backup)
 			desc=$(cat $backup/.description)
 
-			[[ $task =~ "^${backup_type}:" ]] || continue
-
 			backup=${backup#$SAMBA_MOUNT/}
 			backup=${backup//\//;}
 			backup=$(echo $backup | sed -E -e 's/_(..)x(..)$/;\1:\2/')
 
 			parts=("${(@s:;:)backup}")
 
-			echo "$parts[1];${task#*:};$parts[2];$parts[3];${desc//;/,}"
+			echo "${task#*:};$parts[2];$parts[3];${desc//;/,}"
 		done
 	)}")
 
