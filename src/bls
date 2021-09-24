@@ -41,6 +41,8 @@ CHECK_FOR_FAILES=1
 # trap, init & exit functions
 #
 TRAPEXIT(){
+	return
+
 	{
 		echo '[0m'
 		tput cnorm
@@ -182,6 +184,8 @@ exec_help(){
 		   options:
 		      -t            - dry run, only list files which would
 		                      be backed up
+		      -L            - level of directory tree presentation
+		                      on dry run
 
 	EOF
 }
@@ -430,7 +434,7 @@ exec_tag(){
 }
 
 exec_test(){
-	exec_restore "$@"
+	exec_backup "$@"
 }
 
 
@@ -670,19 +674,28 @@ backup_system_files(){
 						-e 'Removing leading' \
 					    > $backup_dir/backuped_files.txt
 				) |
-			pv -F "   Time:%t %r%p %e" -w 60 -s ${tar_size}m |\
+			pv -F "   Time: %t %r%p %e" -w 60 -s ${tar_size}m |\
 			cat > /dev/null
 
 			(
 				local line
+				local parts
+
 				cat $backup_dir/backuped_files.txt |
 				while read line; do
-					[[ -d $line ]] && echo $line && continue
+					[[ -d $line ]] || continue
+
+					parts=("${(@s:/:)${${line/#\/}/%\/}}")
+
+					[[ $#parts -le $BLS_TREE_LEVEL ]] && echo "${line/%\/}/"
 				done |
 				sort |
-				uniq > $backup_dir/backuped_dirs.txt
+				uniq |
+				tree --fromfile .  |
+				grep -Ev '[0-9]+ directories, ' > $backup_dir/backuped_dirs.txt
 			) &
 
+			echo
 			progress_meter $! "Creating directory list"
 
 		else
@@ -709,7 +722,7 @@ backup_system_files(){
 				) |
 
 			pigz |\
-			pv -F "   Time:%t %r%p %e" -w 60 -s ${tar_size}m |\
+			pv -F "   Time: %t %r%p %e" -w 60 -s ${tar_size}m |\
 			cat > $backup_dir/system-image.tar.gz
 		fi
 
@@ -725,89 +738,97 @@ backup_system_files(){
 			date "+%F %H:%M:%S" > $backup_dir/.test
 		fi
 
+		# save running config to file
+		#
+		{
+
+			echo "[ $BLS_TASK ]"
+			echo "   type: system"
+			echo
+			 
+			local prefix="exclude:"
+			local pwidth=$#prefix
+			local item
+
+			if [[ -n $BLS_BACKUP_EXCLUDE ]]; then
+
+				for item in "${(O@)BLS_BACKUP_EXCLUDE}"; do
+					echo "   ${(r:$pwidth:)prefix} $item"
+					prefix=""
+				done
+				echo
+			fi
+
+			if [[ -n $BLS_BACKUP_MOUNTS ]]; then
+				prefix="mounts:"
+
+				for item in "${(@)BLS_BACKUP_MOUNTS}"; do
+					echo "   ${(r:$pwidth:)prefix} ${item%%;*}"
+					prefix=""
+				done
+				echo
+			fi
+		} > $backup_dir/.config
+
 		if [[ $BLS_TEST -eq 0 ]]; then
 			print_off ""
 			print_box "System has been succesfully backuped!"
 			print_off ""
+			print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
+			print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
+			print_off "${color_yellow}Task:   ${color_none}$BLS_TASK"
+			print_off ""
 
 		else
+			SAMBA_MOUNT=""
+
 			print_off ""
 			print_box "Test run has been succesfully done!"
 
-			echo -n "${move_up}"
-			cat <<-EOF | print_off
-				${color_yellow}
-				This is 'dry run' of backup. In backup directory file was
-				created containing  the list of all files and directories
-				which would be backed up in  real run.  After 'bls' exits
-				directory will stay and  will be mounted, but next run of
-				'bls'  will  unmount  and  delete  directory  since it is
-				considered temporary.
-				
-				${color_yellow}Backup dir:${color_none} ${backup_dir}${color_yellow}
+			{
+				cat <<-EOF | sed -e 's/^/   /'
+					${color_yellow}
+					${color_yellow}
+					This is 'dry run' of backup. In backup directory file was
+					created containing  the list of all files and directories
+					which would be backed up in  real run.  After 'bls' exits
+					directory will stay and  will be mounted, but next run of
+					'bls'  will  unmount  and  delete  directory  since it is
+					considered temporary.
+					
+					${color_yellow}Backup dir:${color_none} ${backup_dir}${color_yellow}
 
-				${color_yellow}Directory list:${color_none} backuped_dirs.txt
-				${color_yellow}Full file list:${color_none} backuped_files.txt
-				${color_none}
-			EOF
+					${color_yellow}Directory list:${color_none} backuped_dirs.txt
+					${color_yellow}Full file list:${color_none} backuped_files.txt
 
-			SAMBA_MOUNT=""
-		fi
+					${color_yellow}Server: ${color_none}$SAMBA_SERVER"
+					${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
+					${color_yellow}Task:   ${color_none}$BLS_TASK"
+					${color_none}
+				EOF
 
-		print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
-		print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
-		print_off "${color_yellow}Task:   ${color_none}$BLS_TASK"
-		# print_off "${color_yellow}IP:         ${color_none}$SAMBA_IP"
-		print_off ""
+				print_off "${color_yellow}Running config:${color_none}"
+				print_off ""
+
+				cat $backup_dir/.config |
+				print_off --offset=5
+
+				print_off ""
+				print_off "${color_yellow}Backuped directories:${color_none}"
+				print_off ""
+
+				cat $backup_dir/backuped_dirs.txt |
+				print_off --offset=5
+
+				echo
+			} | less -RFX
+		fi 
+
 
 	tput cnorm >/dev/tty
 	#
 	# End backup. Show cursor again
 	#################################################
-	
-	# save running config to file
-	#
-	if [[ $BLS_TEST -eq 1 ]]; then
-		print_off "${color_yellow}Running config:${color_none}"
-		print_off ""
-	fi
-
-	{
-
-		echo "[ $BLS_TASK ]"
-		echo "   type: system"
-		echo
-		 
-		local prefix="exclude:"
-		local pwidth=$#prefix
-		local item
-
-		if [[ -n $BLS_BACKUP_EXCLUDE ]]; then
-
-			for item in "${(O@)BLS_BACKUP_EXCLUDE}"; do
-				echo "   ${(r:$pwidth:)prefix} $item"
-				prefix=""
-			done
-			echo
-		fi
-
-		if [[ -n $BLS_BACKUP_MOUNTS ]]; then
-			prefix="mounts:"
-
-			for item in "${(@)BLS_BACKUP_MOUNTS}"; do
-				echo "   ${(r:$pwidth:)prefix} ${item%%;*}"
-				prefix=""
-			done
-			echo
-		fi
-	} |
-
-	if [[ $BLS_TEST -eq 0 ]]; then
-		cat > $backup_dir/.config
-	else
-		tee $backup_dir/.config | 
-		print_off --offset=5
-	fi
 }
 
 restore_system_files(){
@@ -823,7 +844,7 @@ restore_system_files(){
 	echo -n "${move_up}"
 
 	cat $tar_file |
-	pv -F "   Time:%t %r%p %e" -w 60 -s ${tar_size}m |
+	pv -F "   Time: %t %r%p %e" -w 60 -s ${tar_size}m |
  	(cd $BLS_RESTORE_DIR; tar -zxf -)
 	echo
 }
@@ -3051,7 +3072,7 @@ collect_smb_servers(){
 			--initial-rtt-timeout=100ms  \
 			--max-rtt-timeout=100ms  \
 			--max-retries=1 \
-			--min-parallelism=50 \
+			--min-parallelism=25 \
 			$networks |
 			awk '
 				/scan report for/{
@@ -3490,11 +3511,12 @@ parse_arguments(){
 	#   -t test (dry run)
 	#
 	local commands=(help info tag backup restore list chroot mount test)
-	local ARGS
+	local ARGS TREE_LEVEL
 	
 	BLS_TEST=0
+	BLS_TREE_LEVEL=3
 
-	zparseopts -E -D -A ARGS t
+	zparseopts -E -D -A ARGS t L:=TREE_LEVEL
 
 
 	if [[ -z "$1" ]]; then
@@ -3512,6 +3534,9 @@ parse_arguments(){
 	fi
 
 	[[ ${+ARGS[-t]} -eq 1 ]] && BLS_TEST=1
+	[[ ${+ARGS[-L]} -eq 1 ]] && BLS_TREE_LEVEL=$TREE_LEVEL[2]
+
+	[[ $BLS_TREE_LEVEL =~ '^[0-9]+$' ]] || BLS_TREE_LEVEL=3
 }
 
 parse_arguments $@
