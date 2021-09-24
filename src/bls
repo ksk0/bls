@@ -41,8 +41,6 @@ CHECK_FOR_FAILES=1
 # trap, init & exit functions
 #
 TRAPEXIT(){
-	return
-
 	{
 		echo '[0m'
 		tput cnorm
@@ -55,8 +53,6 @@ TRAPEXIT(){
 
 	umount_chroot_resources
 	umount_devices
-
-	# return
 
 	if [[ -n $BLS_RESTORE_DIR ]] && [[ -d $BLS_RESTORE_DIR ]]; then
 		cd
