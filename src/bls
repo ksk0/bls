@@ -176,8 +176,8 @@ exec_help(){
 		      chroot        - chroot to restored system
 		      list          - list backups on selected share
 		      mount         - mount selected samba share
-			  tag           - tag selected samba share as backup
-			                  storage
+		      tag           - tag selected samba share as backup
+		                      storage
 
 		   options:
 		      -t            - dry run, only list files which would

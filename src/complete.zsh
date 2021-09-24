@@ -7,6 +7,7 @@ local -a args=(/$'[^\0]#\0'/)
 local -a bls_commands
 
 _regex_words bls-commands "bls commands" \
+	'tag:tag samba share as backup storage' \
 	'info:show exetended info on command usage' \
 	'chroot:chroot to restored system' \
 	'backup:backup current system' \
