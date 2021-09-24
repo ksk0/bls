@@ -247,8 +247,6 @@ exec_restore(){
 	check_for_bls_instance
 	get_run_mode
 
-	# BLS_RUN_MODE=rescue
-
 	echo
 	free_samba_mount
 	free_restore_mounts
@@ -485,7 +483,7 @@ run_restore(){
 
 	local task=$(cat $BLS_RESTORE/.bls-backup)
 
-	if [[ $task =~ "^system:" ]]; then
+	if [[ $task =~ "^system" ]]; then
 		restore_system
 	else
 		print_off ""
