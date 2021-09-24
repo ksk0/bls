@@ -801,9 +801,9 @@ backup_system_files(){
 					${color_yellow}Directory list:${color_none} backuped_dirs.txt
 					${color_yellow}Full file list:${color_none} backuped_files.txt
 
-					${color_yellow}Server: ${color_none}$SAMBA_SERVER"
-					${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
-					${color_yellow}Task:   ${color_none}$BLS_TASK"
+					${color_yellow}Server: ${color_none}$SAMBA_SERVER
+					${color_yellow}Share:  ${color_none}$SAMBA_SHARE
+					${color_yellow}Task:   ${color_none}$BLS_TASK
 					${color_none}
 				EOF
 
