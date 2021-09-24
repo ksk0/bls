@@ -32,6 +32,7 @@ BLS_LOCK=/run/bls.lock
 BLS_FSTAB=/etc/fstab
 BLS_RESTORE_DIR=/mnt/bls-restore
 BLS_LAST_MOUNTS=""
+BLS_TAG=$SAMBA_MOUNT/.bls_backup_share
 CHECK_FOR_FAILES=1
 
 
@@ -175,6 +176,8 @@ exec_help(){
 		      chroot        - chroot to restored system
 		      list          - list backups on selected share
 		      mount         - mount selected samba share
+			  tag           - tag selected samba share as backup
+			                  storage
 
 		   options:
 		      -t            - dry run, only list files which would
@@ -239,6 +242,8 @@ exec_restore(){
 	run_as_root
 	check_for_bls_instance
 	get_run_mode
+
+	# BLS_RUN_MODE=rescue
 
 	echo
 	free_samba_mount
@@ -404,8 +409,28 @@ exec_chroot(){
 	chroot $BLS_RESTORE_DIR
 }
 
+exec_tag(){
+	run_as_root
+	check_for_bls_instance
+
+	echo
+	free_samba_mount
+	# select_smb_server
+	# select_smb_share
+	SAMBA_IP=192.168.30.50
+	SAMBA_SERVER=maestral-backup
+	SAMBA_SHARE=backup
+	SAMBA_LOGIN=""
+	SAMBA_PASSWD=""
+
+	mount_smb_share
+	CHECK_FOR_FAILES=0
+
+	tag_smb_share
+}
+
 exec_test(){
-	exec_mount
+	exec_restore "$@"
 }
 
 
@@ -494,10 +519,12 @@ backup_system(){
 		echo
 	fi
 
+	CHECK_FOR_FAILES=1
+
 	mount_smb_share
 	remove_failed_backups
+	tag_smb_share
 
-	CHECK_FOR_FAILES=1
 	backup_system_files $desc
 
 }
@@ -542,7 +569,7 @@ backup_system_files(){
 		rm -f /tmp/bls-exclude
 	)
 
-	local backup_dir="$SAMBA_MOUNT/$(hostname)/$(date "+%F_%Hx%M")"
+	local backup_dir="$SAMBA_MOUNT/$(hostname)/$BLS_TASK/$(date "+%F_%Hx%M")"
 
 	if [[ -d $backup_dir ]]; then
 		local pause_time=$((60 - $(date +%S)))
@@ -573,14 +600,14 @@ backup_system_files(){
 		# create directory for backup (name of directory
 		# will be time stamp
 		#
-		backup_dir="$SAMBA_MOUNT/$(hostname)/$(date "+%F_%Hx%M")"
+		backup_dir="$SAMBA_MOUNT/$(hostname)/$BLS_TASK/$(date "+%F_%Hx%M")"
 		mkdir -p $backup_dir
 
 		# add description to backup and stamp declaring
 		# this a bls-backu
 		#
-		echo "system:$BLS_TASK" > $backup_dir/.bls-backup
-		echo "$desc" > $backup_dir/.description
+		echo "system" > $backup_dir/.bls-backup
+		echo "${desc//;/,}" > $backup_dir/.description
 
 		# create list of mounts and copy current
 		# fstab
@@ -625,7 +652,8 @@ backup_system_files(){
 		local cwd=$(pwd)r
 		cd /
 
-		print_off "${color_yellow}Backingup system:${color_none}"
+		local backup_size=$(echo $tar_size | awk '{printf "%5.1fG", ($1 / 1024)}')
+		print_off "${color_yellow}Backingup system:${color_none} $backup_size"
 		echo
 
 		if [[ $BLS_TEST -eq 1 ]]; then
@@ -640,10 +668,22 @@ backup_system_files(){
 					grep --line-buffered -v   \
 						-e 'socket ignored'   \
 						-e 'Removing leading' \
-					    > $backup_dir/system-image.files
+					    > $backup_dir/backuped_files.txt
 				) |
 			pv -F "   Time:%t %r%p %e" -w 60 -s ${tar_size}m |\
 			cat > /dev/null
+
+			(
+				local line
+				cat $backup_dir/backuped_files.txt |
+				while read line; do
+					[[ -d $line ]] && echo $line && continue
+				done |
+				sort |
+				uniq > $backup_dir/backuped_dirs.txt
+			) &
+
+			progress_meter $! "Creating directory list"
 
 		else
 			echo
@@ -704,9 +744,11 @@ backup_system_files(){
 				'bls'  will  unmount  and  delete  directory  since it is
 				considered temporary.
 				
-				Backup dir:${color_none} ${backup_dir}${color_yellow}
-				File name:${color_none}  system-backup.files
-				${(color_none}
+				${color_yellow}Backup dir:${color_none} ${backup_dir}${color_yellow}
+
+				${color_yellow}Directory list:${color_none} backuped_dirs.txt
+				${color_yellow}Full file list:${color_none} backuped_files.txt
+				${color_none}
 			EOF
 
 			SAMBA_MOUNT=""
@@ -773,7 +815,8 @@ restore_system_files(){
 	local tar_size=$(du -ms $tar_file | awk '{print $1}')
 
 	echo
-	print_off "${color_yellow}Restoring system:${color_none}"
+	local backup_size=$(echo $tar_size | awk '{printf "%5.1fG", ($1 / 1024)}')
+	print_off "${color_yellow}Restoring system:${color_none} $backup_size"
 	echo
 
 	echo
@@ -899,6 +942,7 @@ system_exclusion_list(){
 
 remove_failed_backups(){
 	[[ $CHECK_FOR_FAILES -ne 1 ]] && return
+	[[ -f $BLS_TAG     ]] || return
 	[[ -n $SAMBA_MOUNT ]] || return 0
 	[[ -d $SAMBA_MOUNT ]] || return 0
 
@@ -947,12 +991,15 @@ list_backups(){
 
 	collect_backups
 
+	exec 4>/dev/tty
+
 	local backups=("${(@f)$(
 		(
 			local backup
 			local parts
 			local desc
 			local task
+			local btype
 			local size
 			local bdir
 
@@ -965,7 +1012,7 @@ list_backups(){
 			sort -V |
 
 			while read backup; do
-				task=$(cat $backup/.bls-backup)
+				btype=$(cat $backup/.bls-backup)
 				desc=$(cat $backup/.description)
 				size=$(du -ms $backup/system-image.tar.gz 2>/dev/null | awk '{printf "%.1f\n", $1 / 1024}')
 
@@ -977,7 +1024,7 @@ list_backups(){
 
 				parts=("${(@s:;:)backup}")
 
-				echo "$parts[1];${task#*:};[${(r:6:)task%:*}];${(l:5:)size};$parts[2];$parts[3];${desc//;/,}"
+				echo "$parts[1];$parts[2];[${(r:6:)btype}];${(l:5:)size};$parts[3];$parts[4];$desc"
 			done
 		) &
 
@@ -993,6 +1040,23 @@ list_backups(){
 
 	print_menu_items $header $backups "------"
 }
+
+tag_smb_share(){
+	[[ -f $BLS_TAG ]] && return
+
+	local error_msg=$(
+		touch $BLS_TAG 2>&1
+		progress_meter $! "Tagging share as backup storage"
+	)
+
+	[[ -f $BLS_TAG ]] && return
+
+	print_box "Failed to tag samba share as backup storage!"
+	print_off "${color_yellow}Error: ${color_none}$error_msg"
+
+	exit 1
+}
+
 
 
 
@@ -2858,7 +2922,7 @@ select_backup(){
 
 		while read backup; do
 			task=$(cat $backup/.bls-backup)
-			[[ $task =~ "^${backup_type}:" ]] && echo $backup
+			[[ $task =~ "^${backup_type}" ]] && echo $backup
 		done |
 		sort -V
 	)}")
@@ -2879,7 +2943,7 @@ select_backup(){
 
 			parts=("${(@s:;:)backup}")
 
-			echo "${task#*:};$parts[2];$parts[3];${desc//;/,}"
+			echo "$parts[2];$parts[3];$parts[4];$desc"
 		done
 	)}")
 
@@ -3060,6 +3124,7 @@ collect_backup_tasks(){
 }
 
 collect_backups(){
+	[[ -f $BLS_TAG ]] || return
 	[[ -n ${BLS_BACKUP_LIST+1} ]] && return
 
 	BLS_BACKUP_LIST=("${(@f)$(
@@ -3424,7 +3489,7 @@ parse_arguments(){
 	# options
 	#   -t test (dry run)
 	#
-	local commands=(help info backup restore list chroot mount test)
+	local commands=(help info tag backup restore list chroot mount test)
 	local ARGS
 	
 	BLS_TEST=0
