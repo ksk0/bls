@@ -2,7 +2,7 @@ __bls_complete(){
 	[[ $COMP_CWORD -gt 2 ]] && return
 
 	if [[ $COMP_CWORD -eq 1 ]]; then
-		COMPREPLY=($(compgen -W "backup chroot restore list mount info" $2))
+		COMPREPLY=($(compgen -W "backup chroot restore list tag mount info" $2))
 		return
 	fi
 
