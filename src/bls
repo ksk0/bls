@@ -839,7 +839,8 @@ restore_system_files(){
 
 	cat $tar_file |
 	pv -F "   Time: %t %r%p %e" -w 60 -s ${tar_size}m |
- 	(cd $BLS_RESTORE_DIR; tar -zxf -)
+	pigz -d |
+ 	(cd $BLS_RESTORE_DIR; tar -xf -)
 	echo
 }
 
