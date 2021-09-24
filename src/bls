@@ -2975,14 +2975,20 @@ select_backup(){
 				  Exiting ...
 			EOF
 		else
+			local run_mode='normal running'
+			[[ $BLS_RUN_MODE = chroot ]] && run_mode='chrooted'
+
 			cat <<-EOF | print_box --align=left
-				This is normal  running system. You can only restore
+				This is ${run_mode} system. You can only restore
 				data from backup, but on selected server/share there
 				are no 'data' backups!
 
 				Exiting ...
 			EOF
 		fi
+
+		print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
+		print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
 
 		exit 1
 	fi
