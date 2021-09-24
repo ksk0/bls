@@ -25,6 +25,7 @@ has_host   != which host
 has_ext4   != which mkfs.ext4
 has_dos    != which mkfs.vfat
 has_less   != which less
+has_tree   != which tree
 
 packages =  $(if ${has_zsh},,zsh)
 packages += $(if ${has_pv},,pv)
@@ -42,6 +43,7 @@ packages += $(if ${has_host},,bind9-host)
 packages += $(if ${has_ext4},,e2fsprogs)
 packages += $(if ${has_dos},,dosfstools)
 packages += $(if ${has_less},,less)
+packages += $(if ${has_tree},,tree)
 
 bash_complete = complete.bash
 zsh_complete  = complete.zsh
@@ -65,7 +67,7 @@ uninstall: .run_as_root .empty_echo .uninstall_files
 	@echo
 
 .install_packages: .run_as_root
-	@if [ ":${packages}:" != ":               :" ]; then \
+	@if [ ":${packages}:" != ":                :" ]; then \
 		echo "   Installing missing packages"; \
 		echo "   ------------------------------------------------------------"; \
 		apt-get --assume-yes -qq install ${packages} |\
