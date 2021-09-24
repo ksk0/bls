@@ -859,6 +859,7 @@ system_exclusion_list(){
 		/dev
 		/run
 		/tmp
+		/media
 		/var/tmp
 		lost+found
 	)
