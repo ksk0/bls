@@ -42,10 +42,13 @@ CHECK_FOR_FAILES=1
 #
 TRAPEXIT(){
 	{
+		echo
 		echo '[0m'
 		tput cnorm
 		[[ -t 0 ]] && stty echo
 	} >/dev/tty
+
+    [[ $NO_TRAP_EXIT -eq 1 ]] && return
 
 	[[ -n $BLS_LOCK ]] && rm -f $BLS_LOCK
 	[[ -z $BLS_LOCK ]] && echo && return
@@ -63,7 +66,7 @@ TRAPEXIT(){
 
 		if [[ -n $ERROR_MESSAGE ]]; then
 			cat <<-EOF | print_box
-				Me failed to remove directory.
+				We failed to remove directory.
 				manually remove directory!
 			EOF
 
@@ -180,10 +183,12 @@ exec_help(){
 		   options:
 		      -t            - dry run, only list files which would
 		                      be backed up
-		      -L            - level of directory tree presentation
-		                      on dry run
+		      -L LEVEL      - level of directory and file tree pre-
+		                      sentation on dry run
 
 	EOF
+
+	NO_TRAP_EXIT=1
 }
 
 exec_info(){
@@ -249,11 +254,6 @@ exec_restore(){
 
 	select_smb_server
 	select_smb_share
-	# SAMBA_IP=192.168.30.50
-	# SAMBA_SERVER=maestral-backup
-	# SAMBA_SHARE=backup
-	# SAMBA_LOGIN=""
-	# SAMBA_PASSWD=""
 
 	mount_smb_share
 	remove_failed_backups
@@ -283,11 +283,6 @@ exec_list(){
 	free_samba_mount
 	select_smb_server
 	select_smb_share
-	# SAMBA_IP=192.168.30.50
-	# SAMBA_SERVER=maestral-backup
-	# SAMBA_SHARE=backup
-	# SAMBA_LOGIN=""
-	# SAMBA_PASSWD=""
 
 	mount_smb_share
 	remove_failed_backups
@@ -345,13 +340,6 @@ exec_mount(){
 	free_samba_mount
 	select_smb_server
 	select_smb_share
-	# SAMBA_IP=192.168.30.50
-	# SAMBA_SERVER=maestral-backup
-	# SAMBA_SHARE=backup
-	# SAMBA_LOGIN=""
-	# SAMBA_PASSWD=""
-
-
 	mount_smb_share
 
 
@@ -413,13 +401,8 @@ exec_tag(){
 
 	echo
 	free_samba_mount
-	# select_smb_server
-	# select_smb_share
-	SAMBA_IP=192.168.30.50
-	SAMBA_SERVER=maestral-backup
-	SAMBA_SHARE=backup
-	SAMBA_LOGIN=""
-	SAMBA_PASSWD=""
+	select_smb_server
+	select_smb_share
 
 	mount_smb_share
 	CHECK_FOR_FAILES=0
@@ -428,7 +411,16 @@ exec_tag(){
 }
 
 exec_test(){
-	exec_backup "$@"
+	SAMBA_IP=192.168.30.50
+	SAMBA_SERVER=maestral-backup
+	SAMBA_SHARE=backup
+	SAMBA_LOGIN=""
+	SAMBA_PASSWD=""
+
+	# BLS_TASK=users
+
+	exec_backup users
+	# exec_restore "$@"
 }
 
 
@@ -436,10 +428,31 @@ exec_test(){
 ###############################################
 # backup/restore functions
 #
+run_backup(){
+	if [[ $BLS_CONFIG_TYPE = system ]]; then
+		backup_system
+	else
+		backup_data
+	fi
+}
+
+run_restore(){
+
+	local task=$(cat $BLS_RESTORE/.bls-backup)
+
+	if [[ $task =~ "^system" ]]; then
+		restore_system
+	else
+		restore_data
+	fi
+
+}
+
 confirm_restore(){
 	local host="${${BLS_RESTORE/#${SAMBA_MOUNT}\/}//%\/*}"
 	local time="${${BLS_RESTORE/#${SAMBA_MOUNT}\/}/#*\/}"
 	local desc=$(head -1 $BLS_RESTORE/.description)
+	local b_type=$(cat $BLS_RESTORE/.bls-backup)
 	time=${${time/_/ }/x/:}
 
 	print_off ""
@@ -451,47 +464,27 @@ confirm_restore(){
 	print_off "${color_yellow}System name: ${color_none}${host}"
 	print_off "${color_yellow}Backup time: ${color_none}${time}"
 	print_off "${color_yellow}Description: ${color_none}${desc}"
+	print_off "${color_yellow}Backup type: ${color_none}${b_type}"
 	print_off ""
 
 	local yesno
 
 	echo
 	while true; do
-		print_off -n "${move_up}Do you want to restore the system [yes/NO]: [0K"
+		print_off -n "${move_up}Do you want to restore the $b_type [yes/NO]: [0K"
 		read yesno
 		[[ ${(L)yesno} = yes ]] && return
 		break
 	done
 
-	print_box "Abondoning restoration of the system!"
+	print_box "Abondoning restoration of the $b_type!"
 	exit 1
 }
 
-run_backup(){
-	if [[ $BLS_CONFIG_TYPE = system ]]; then
-		backup_system
-	else
-		echo "Backing up data"
-	fi
-}
-
-run_restore(){
-
-	local task=$(cat $BLS_RESTORE/.bls-backup)
-
-	if [[ $task =~ "^system" ]]; then
-		restore_system
-	else
-		print_off ""
-		print_off "Restoring data"
-		print_off ""
-	fi
-
-}
 
 backup_system(){
 
-	system_exclusion_list
+	exclusion_list_system
 	get_backup_mounts
 	mount_backup_devices
 
@@ -527,30 +520,45 @@ backup_system(){
 
 }
 
-restore_system(){
-	echo
-	mdadm_scan
-	mdadm_recreate
+backup_data(){
 
-	get_restore_mounts
+	backup_list_data
+	exclusion_list_data
 
-	format_restore_partitions
-	mount_restore_devices
+	select_smb_server
+	select_smb_share
 
-	restore_system_files
-	mirror_efi_parititons
+	local desc
 
-	BLS_LAST_MOUNTS=""
+	if [[ $BLS_TEST -eq 0 ]]; then
+		echo
+		echo
+		while true; do
+			echo -n "${move_up}"
+			echo -n "   ${color_yellow}Backup description:${color_none} [0K"
+
+			read desc
+			[[ -n $desc ]] && break
+		done
+
+		echo
+	fi
+
+	CHECK_FOR_FAILES=1
+
+	mount_smb_share
+	remove_failed_backups
+	tag_smb_share
+
+	backup_data_files $desc
+
 }
 
 backup_system_files(){
 	local desc=$1
 
-	# calculate  total size of backup,  also  make pause
-	# if necesary to avoid creating backup dir with same
-	# time stamp as last backup
+	# calculate  total size of backup
 	#
-
 	local tar_size=$(
 		# create tar exclusion list
 		#
@@ -567,8 +575,14 @@ backup_system_files(){
 		rm -f /tmp/bls-exclude
 	)
 
+	# define name of backup dir. For each host there will be
+	# separate dir (named as host), and each backup will be in
+	# separate dir with name made as time stamp.
+	#
 	local backup_dir="$SAMBA_MOUNT/$(hostname)/$BLS_TASK/$(date "+%F_%Hx%M")"
 
+	# if backup with same time stamp exists, sleep for a while
+	#
 	if [[ -d $backup_dir ]]; then
 		local pause_time=$((60 - $(date +%S)))
 		local start_time=$(date +%s)
@@ -617,37 +631,10 @@ backup_system_files(){
 		#
 		echo ${(j:\n:)BLS_BACKUP_EXCLUDE} > $backup_dir/.exclude
 
-		# echo ${(j:\n:)BLS_BACKUP_EXCLUDE} |
-		# perl -ne '
-		# 	s/\./\x1B/g;
-
-		# 	if (/^\//){
-		# 		s/\*/\[\^\\\/\]*/g;
-		# 		s/\/\[\^\\\/\]\*$/\/.*/;
-		# 		s/(\[\^\\\/\]\*)$/\1\$/;
-
-		# 		s/\?/./g;
-		# 	}else{
-		# 		s/\*/.*/g;
-		# 		# s/\?/./g;
-		# 	}
-
-		# 	s/\x1B/\\./g;
-		# 	s/\+/\\+/g;
-
-		# 	print;
-		# ' > $backup_dir/.exclude
-		# 
-		# # create list of files to tar
-		# #
-		# find / 2>/dev/null |
-		# sort |
-		# grep -Ev -e '^/$' -f $backup_dir/.exclude > $backup_dir/.tar-files
 
 		# create tar archive
 		#
-
-		local cwd=$(pwd)r
+		local cwd=$(pwd)
 		cd /
 
 		local backup_size=$(echo $tar_size | awk '{printf "%5.1fG", ($1 / 1024)}')
@@ -698,14 +685,6 @@ backup_system_files(){
 
 			tar_size=$((tar_size / 2))
 
-			# tar -cvf - \
-			# 	--no-recursion \
-			# 	--files-from $backup_dir/.tar-files \
-			# 	2> lista |
-			# 	pigz |\
-			# 	pv -F "   Time:%t %r%p %e" -w 60 -s ${tar_size}m |\
-			# 	cat > $backup_dir/system-image.tar.gz
-
 			tar \
 				--exclude-from=$backup_dir/.exclude \
 			    -cf - /  \
@@ -719,10 +698,6 @@ backup_system_files(){
 			pv -F "   Time: %t %r%p %e" -w 60 -s ${tar_size}m |\
 			cat > $backup_dir/system-image.tar.gz
 		fi
-
-		# remove exclude list
-		#
-		# rm -f $backup_dir/.exclude
 
 		# create stamp signaling backup was succesfull
 		#
@@ -808,7 +783,7 @@ backup_system_files(){
 				print_off --offset=5
 
 				print_off ""
-				print_off "${color_yellow}Backuped directories:${color_none}"
+				print_off "${color_yellow}Backuped directories (tree level $BLS_TREE_LEVEL}:${color_none}"
 				print_off ""
 
 				cat $backup_dir/backuped_dirs.txt |
@@ -823,6 +798,322 @@ backup_system_files(){
 	#
 	# End backup. Show cursor again
 	#################################################
+}
+
+backup_data_files(){
+	local desc=$1
+
+	# calculate  total size of backup
+	#
+
+	local tar_size=$(
+		# create tar exclusion list
+		#
+		echo ${(j:\n:)BLS_BACKUP_EXCLUDE} > /tmp/bls-exclude
+
+		(
+			cd /
+			du --exclude-from=/tmp/bls-exclude -ks $BLS_BACKUP_INCLUDE |
+			awk '{sum = sum + $1} END {printf "%d", ((sum/1024) + 1) }'
+		) &
+
+		progress_meter $! "Calculating backup size"
+
+		# echo
+		# cat /tmp/bls-exclude
+		# echo
+		rm -f /tmp/bls-exclude
+	)
+
+
+	# define name of backup dir. For each host there will be
+	# separate dir (named as host), and each backup will be in
+	# separate dir with name made as time stamp.
+	#
+	local backup_dir="$SAMBA_MOUNT/$(hostname)/$BLS_TASK/$(date "+%F_%Hx%M")"
+
+	# if backup with same time stamp exists, sleep for a while
+	#
+	if [[ -d $backup_dir ]]; then
+		local pause_time=$((60 - $(date +%S)))
+		local start_time=$(date +%s)
+		local time_diff
+
+		# sleep for a while
+		#
+		(
+			while true; do
+				sleep 0.2
+				time_diff=$(($(date +%s) - start_time))
+				[[ $time_diff -gt $pause_time ]] && break
+			done
+		) &
+
+		progress_meter $! "Time delay "
+	fi
+		
+
+	#################################################
+	# Start backup. First switch of cursor
+	#
+
+	echo
+	tput civis >/dev/tty
+
+		# create directory for backup (name of directory
+		# will be time stamp
+		#
+		backup_dir="$SAMBA_MOUNT/$(hostname)/$BLS_TASK/$(date "+%F_%Hx%M")"
+		mkdir -p $backup_dir
+
+		# add description to backup and stamp declaring
+		# this a bls-backu
+		#
+		echo "data" > $backup_dir/.bls-backup
+		echo "${desc//;/,}" > $backup_dir/.description
+
+		# create tar exclusion list
+		#
+		echo ${(j:\n:)BLS_BACKUP_EXCLUDE} > $backup_dir/.exclude
+
+		# create tar inclusion list
+		#
+		echo ${(j:\n:)BLS_BACKUP_INCLUDE} > $backup_dir/.include
+
+		# create tar archive
+		#
+
+		local cwd=$(pwd)
+		cd /
+
+		local backup_size=$(echo $tar_size | awk '{printf "%5.1fM", $1}')
+		print_off "${color_yellow}Backingup data:${color_none} $backup_size"
+		echo
+
+		if [[ $BLS_TEST -eq 1 ]]; then
+
+			echo
+			echo -n "${move_up}"
+
+			tar \
+				--exclude-from=$backup_dir/.exclude \
+				--files-from=$backup_dir/.include \
+				-cvf - \
+				2> >(
+					grep --line-buffered -v   \
+						-e 'socket ignored'   \
+						-e 'Removing leading' \
+					    > $backup_dir/backuped_files.txt
+				) |
+			pv -F "   Time: %t %r%p %e" -w 60 -s ${tar_size}m |\
+			cat > /dev/null
+
+			(
+				local line
+				local parts
+
+				cat $backup_dir/backuped_files.txt |
+				while read line; do
+					[[ -d $line ]] || continue
+
+					parts=("${(@s:/:)${${line/#\/}/%\/}}")
+
+					[[ $#parts -le $BLS_TREE_LEVEL ]] && echo "${line/%\/}/"
+				done |
+				sort |
+				uniq |
+				tree --fromfile .  |
+				grep -Ev '[0-9]+ directories, ' > $backup_dir/backuped_tree_dirs.txt
+			) &
+
+			echo
+			progress_meter $! "Creating directory list"
+
+			(
+				local line
+				local parts
+				local level=$((BLS_TREE_LEVEL + 1))
+
+				cat $backup_dir/backuped_files.txt |
+				while read line; do
+					[[ -d $line ]] && continue
+
+					parts=("${(@s:/:)${${line/#\/}/%\/}}")
+
+					[[ $#parts -le $level ]] && echo "${line/%\/}/"
+				done |
+				sort |
+				uniq |
+				tree --fromfile .  |
+				grep -Ev '[0-9]+ directories, ' > $backup_dir/backuped_tree_files.txt
+			) &
+
+			echo
+			progress_meter $! "Creating file list"
+
+		else
+			echo
+			echo -n "${move_up}"
+
+			tar_size=$((tar_size / 2))
+
+			tar \
+				--exclude-from=$backup_dir/.exclude \
+				--files-from=$backup_dir/.include \
+			    -cf - \
+				2> >(
+					grep --line-buffered -v  \
+						-e 'socket ignored' \
+						-e 'Removing leading' >&2
+				) |
+
+			pigz |\
+			pv -F "   Time: %t %r%p %e" -w 60 -s ${tar_size}m |\
+			cat > $backup_dir/data-files.tar.gz
+		fi
+
+		# create stamp signaling backup was succesfull
+		#
+		if [[ $BLS_TEST -eq 0 ]]; then
+			date "+%F %H:%M:%S" > $backup_dir/.done
+		else
+			date "+%F %H:%M:%S" > $backup_dir/.test
+		fi
+
+		# save running config to file
+		#
+		{
+
+			echo "[ $BLS_TASK ]"
+			echo "   type: data"
+			echo
+			 
+			local prefix="backup:"
+			local pwidth=$#prefix
+			local item
+
+			if [[ -n $BLS_BACKUP_INCLUDE ]]; then
+
+				for item in "${(O@)BLS_BACKUP_INCLUDE}"; do
+					echo "   ${(r:$pwidth:)prefix} $item"
+					prefix=""
+				done
+				echo
+			fi
+			 
+			prefix="exclude:"
+			pwidth=$#prefix
+
+			if [[ -n $BLS_BACKUP_EXCLUDE ]]; then
+
+				for item in "${(O@)BLS_BACKUP_EXCLUDE}"; do
+					echo "   ${(r:$pwidth:)prefix} $item"
+					prefix=""
+				done
+				echo
+			fi
+
+			if [[ -n $BLS_BACKUP_MOUNTS ]]; then
+				prefix="mounts:"
+
+				for item in "${(@)BLS_BACKUP_MOUNTS}"; do
+					echo "   ${(r:$pwidth:)prefix} ${item%%;*}"
+					prefix=""
+				done
+				echo
+			fi
+		} > $backup_dir/.config
+
+		if [[ $BLS_TEST -eq 0 ]]; then
+			print_off ""
+			print_box "System has been succesfully backuped!"
+			print_off ""
+			print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
+			print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
+			print_off "${color_yellow}Task:   ${color_none}$BLS_TASK"
+			print_off ""
+
+		else
+			SAMBA_MOUNT=""
+
+			print_off ""
+			print_box "Test run has been succesfully done!"
+
+			{
+				cat <<-EOF | sed -e 's/^/   /'
+					${color_yellow}
+					${color_yellow}
+					This is 'dry run' of backup. In backup directory file was
+					created containing  the list of all files and directories
+					which would be backed up in  real run.  After 'bls' exits
+					directory will stay and  will be mounted, but next run of
+					'bls'  will  unmount  and  delete  directory  since it is
+					considered temporary.
+					
+					${color_yellow}Backup dir:${color_none} ${backup_dir}${color_yellow}
+
+					${color_yellow}Directory tree:${color_none} backuped_tree_dirs.txt
+					${color_yellow}FIle list tree:${color_none} backuped_tree_files.txt
+					${color_yellow}Full file list:${color_none} backuped_files.txt
+
+
+					${color_yellow}Server: ${color_none}$SAMBA_SERVER
+					${color_yellow}Share:  ${color_none}$SAMBA_SHARE
+					${color_yellow}Task:   ${color_none}$BLS_TASK
+					${color_none}
+				EOF
+
+				print_off "${color_yellow}Running config:${color_none}"
+				print_off ""
+
+				cat $backup_dir/.config |
+				print_off --offset=5
+
+				print_off ""
+				print_off "${color_yellow}Backuped directories (tree level $BLS_TREE_LEVEL}:${color_none}"
+				# print_off ""
+
+				cat $backup_dir/backuped_tree_dirs.txt |
+				print_off --offset=5
+
+				print_off ""
+				print_off "${color_yellow}Backuped files (tree level $BLS_TREE_LEVEL}:${color_none}"
+				# print_off ""
+
+				cat $backup_dir/backuped_tree_files.txt |
+				print_off --offset=5
+
+				echo
+			} | less -RFX
+		fi 
+
+
+	tput cnorm >/dev/tty
+	#
+	# End backup. Show cursor again
+	#################################################
+}
+
+
+restore_system(){
+	echo
+	mdadm_scan
+	mdadm_recreate
+
+	get_restore_mounts
+
+	format_restore_partitions
+	mount_restore_devices
+
+	restore_system_files
+	mirror_efi_parititons
+
+	BLS_LAST_MOUNTS=""
+}
+
+restore_data(){
+	select_restore_dir
+	restore_data_files
 }
 
 restore_system_files(){
@@ -844,118 +1135,25 @@ restore_system_files(){
 	echo
 }
 
-system_exclusion_list(){
+restore_data_files(){
+	local tar_file=$BLS_RESTORE/data-files.tar.gz
+	local tar_size=$(du -ms $tar_file | awk '{print $1}')
 
-	# create exclude file list
-	#
-	local -U tar_exclude=(
-		/proc
-		/sys
-		/dev
-		/run
-		/tmp
-		/media
-		/var/tmp
-		lost+found
-	)
+	echo
+	local backup_size=$(echo $tar_size | awk '{printf "%5.1fM", $1}')
+	print_off "${color_yellow}Restoring files:${color_none} $backup_size"
+	echo
 
-	tar_exclude+=("${(@)BLS_CONFIG_EXCLUDE}")
+	echo
+	echo -n "${move_up}"
 
-	tar_exclude=("${(@f)$(
-		local failed=()
-		local -U exclude_list=()
-		local item exclude_item
-
-		(
-			for exclude_item in $tar_exclude; do
-
-				item=$exclude_item
-
-				# remove trailing '/' or '/*' eg, only 
-				# deal with directory name without
-				# trailing '/'
-				#
-				regexp-replace item '\/+' '/'
-				regexp-replace item '\*+' '*'
-				regexp-replace item '\/+$' ''
-				regexp-replace item '(\/\*)+$' '/*'
-				regexp-replace item '\/\*$' '/'
-
-				# we can not exclude root directory
-				#
-				if [[ $item = '/' ]]; then
-					failed=("Failed with root:$exclude_item")
-					break
-				fi
-
-				regexp-replace item '\/$' ''
-
-				# if item is file pattern add it
-				# to exclusion list
-				#
-				[[ $item[1] != '/'  ]] && exclude_list+=("$item") && continue
-
-				# if item is file pattern inside
-				# directory, add it to exclusion
-				# list
-				#
-				[[ $item    =~ '\*' ]] && exclude_list+=("$item") && continue
-
-				# if item is existing directory add
-				# exclusion of directory content and
-				# not directory itself
-				#
-				[[ -d $item ]] && exclude_list+=("${item/%//*}") && continue
-
-				# if item is existing file, add it
-				# to exclusion list
-				#
-				[[ -e $item ]] && exclude_list+=("$item")   && continue
-
-				# if absolut path does not represent
-				# existing directory or file, raise
-				# error
-				#
-				failed+=("Failed with item:$exclude_item")
-			done
-
-			[[ -n $failed ]] && echo ${(j:\n:)failed}
-			[[ -z $failed ]] && echo ${(j:\n:)exclude_list}
-		) &
-
-		progress_meter $! "Creating exclude list"
-	)}")
-
-	if [[ ! $tar_exclude =~ '^Failed with (item|root):' ]]; then
-		tar_exclude+=("$SAMBA_MOUNT" "$SAMBA_MOUNT/*")
-		BLS_BACKUP_EXCLUDE=("${(@o)tar_exclude}")
-		return
-	fi
-
-
-	{
-		if [[ $tar_exclude =~ '^Failed with item:' ]]; then
-			cat <<-EOF | print_box --align=left
-				There are non existing directories/files in 'exclude'
-				list. Fix config file and run 'bls' again.
-			EOF
-		else
-			print_box "We can not exclude root directory in 'exclude' list"
-		fi
-
-		local val_prefix="Invalid exclude:"
-		local item
-
-		for item in {1..$#tar_exclude}; do
-			print_off "${color_yellow}${(r:16:)val_prefix}${color_none} ${tar_exclude[$item]#*:}"
-			val_prefix=""
-		done
-
-		print_off ""
-	} >&2
-
-	exit 1
+	cat $tar_file |
+	pv -F "   Time: %t %r%p %e" -w 60 -s ${tar_size}m |
+	pigz -d |
+ 	(cd $BLS_RESTORE_DATA; tar -xf -)
+	echo
 }
+
 
 remove_failed_backups(){
 	[[ $CHECK_FOR_FAILES -ne 1 ]] && return
@@ -1058,20 +1256,295 @@ list_backups(){
 	print_menu_items $header $backups "------"
 }
 
-tag_smb_share(){
-	[[ -f $BLS_TAG ]] && return
 
-	local error_msg=$(
-		touch $BLS_TAG 2>&1
-		progress_meter $! "Tagging share as backup storage"
+exclusion_list_system(){
+
+	# create exclude file list
+	#
+	local -U tar_exclude=(
+		/proc
+		/sys
+		/dev
+		/run
+		/tmp
+		/media
+		/var/tmp
+		lost+found
 	)
+	
+	exclusion_list_config
+}
 
-	[[ -f $BLS_TAG ]] && return
+exclusion_list_data(){
+	local -U tar_exclude=()
 
-	print_box "Failed to tag samba share as backup storage!"
-	print_off "${color_yellow}Error: ${color_none}$error_msg"
+	exclusion_list_config
+}
+
+exclusion_list_config(){
+
+	tar_exclude+=("${(@)BLS_CONFIG_EXCLUDE}")
+
+	tar_exclude=("${(@f)$(
+		local failed=()
+		local -U exclude_list=()
+		local item exclude_item
+
+		(
+			for exclude_item in $tar_exclude; do
+
+				item=$exclude_item
+
+				# remove trailing '/' or '/*' eg, only 
+				# deal with directory name without
+				# trailing '/'
+				#
+				regexp-replace item '\/+' '/'
+				regexp-replace item '\*+' '*'
+				regexp-replace item '\/+$' '/'
+				regexp-replace item '(\/\*)+$' '/*'
+				regexp-replace item '\/\*$' '/'
+
+				# [[ $item != '/' ]] && item=${item%/}
+
+				# we can not exclude root directory
+				#
+				if [[ $item = '/' ]]; then
+					failed=("Failed with root:$exclude_item")
+					break
+				fi
+
+				regexp-replace item '\/$' ''
+
+				# if item is file pattern add it
+				# to exclusion list
+				#
+				[[ $item[1] != '/'  ]] && exclude_list+=("$item") && continue
+
+				# if item is file pattern inside
+				# directory, add it to exclusion
+				# list
+				#
+				[[ $item    =~ '\*' ]] && exclude_list+=("$item") && continue
+
+				# if item is existing directory add
+				# exclusion of directory content and
+				# not directory itself
+				#
+				[[ -d $item ]] && exclude_list+=("${item/%//*}") && continue
+
+				# if item is existing file, add it
+				# to exclusion list
+				#
+				[[ -e $item ]] && exclude_list+=("$item")   && continue
+
+				# if absolut path does not represent
+				# existing directory or file, raise
+				# error
+				#
+				failed+=("Failed with item:$exclude_item")
+			done
+
+			[[ -n $failed ]] && echo ${(j:\n:)failed}
+			[[ -z $failed ]] && echo ${(j:\n:)exclude_list}
+		) &
+
+		progress_meter $! "Creating exclude list"
+	)}")
+
+	if [[ ! $tar_exclude =~ '^Failed with (item|root):' ]]; then
+		tar_exclude+=("$SAMBA_MOUNT" "$SAMBA_MOUNT/*")
+		BLS_BACKUP_EXCLUDE=("${(@o)tar_exclude}")
+		return
+	fi
+
+
+	{
+		if [[ $tar_exclude =~ '^Failed with item:' ]]; then
+			cat <<-EOF | print_box --align=left
+				There are non existing directories/files in 'exclude'
+				list. Fix config file and run 'bls' again.
+			EOF
+		else
+			print_box "We can not exclude root directory in 'exclude' list"
+		fi
+
+		local val_prefix="Invalid exclude:"
+		local item
+
+		for item in {1..$#tar_exclude}; do
+			print_off "${color_yellow}${(r:16:)val_prefix}${color_none} ${tar_exclude[$item]#*:}"
+			val_prefix=""
+		done
+
+		print_off ""
+	} >&2
 
 	exit 1
+}
+
+
+backup_list_data(){
+	local -U tar_backup=()
+
+	backup_list_config
+}
+
+backup_list_config(){
+
+	tar_backup+=("${(@)BLS_CONFIG_BACKUP}")
+
+	tar_backup=("${(@f)$(
+		local failed=()
+		local -U backup_list=()
+		local item backup_item
+
+		(
+			for backup_item in $tar_backup; do
+
+				item=$backup_item
+
+				# remove trailing '/' or '/*' eg, only 
+				# deal with directory name without
+				# trailing '/'
+				#
+				regexp-replace item '\/+' '/'
+				regexp-replace item '\*+' '*'
+				regexp-replace item '\/+$' '/'
+				regexp-replace item '(\/\*)+$' '/*'
+				regexp-replace item '\/\*$' '/'
+
+
+				# we can not backup root directory
+				#
+				if [[ $item = '/' ]]; then
+					failed=("Failed with root:$backup_item")
+					break
+				fi
+
+				# If item is not absolute path raise error
+				#
+				if [[ $item[1] != '/'  ]]; then
+					failed+=("Failed with item:$backup_item")
+					echo "Failed: $item" >&2
+					continue
+				fi
+
+				# if item is file pattern inside
+				# directory, add it to backup
+				# list
+				#
+				[[ $item =~ '\*' ]] && backup_list+=("${item%/}") && continue
+
+				# if item ends with '/' than check for directory
+				#
+				if [[ $item[-1] = '/' ]]; then
+					if [[ -d $item ]]; then
+						backup_list+=("${item%/}")
+					else
+						failed+=("Failed with item:$backup_item")
+					fi
+
+					continue
+				fi
+
+				# if item is existing directory or file
+				# add it to backup list
+				#
+				[[ -e $item ]] && backup_list+=("$item")   && continue
+
+				# if absolut path does not represent
+				# existing directory or file, raise
+				# error
+				#
+				failed+=("Failed with item:$backup_item")
+			done
+
+			[[ -n $failed ]] && echo ${(j:\n:)failed}
+			[[ -z $failed ]] && echo ${(j:\n:)backup_list}
+		) &
+
+		progress_meter $! "Creating backup list"
+	)}")
+
+	if [[ -z $tar_backup ]]; then
+		cat <<-EOF | print_box --align=left
+			No files/directories were given in backup list.  Use
+			'backup' key do define file to be backupped.
+		EOF
+
+		print_off ""
+
+		exit 1
+	fi >&2
+
+	if [[ ! $tar_backup =~ '^Failed with (item|root):' ]]; then
+		BLS_BACKUP_INCLUDE=("${(@o)tar_backup}")
+
+		# echo ${(j:\n:)BLS_BACKUP_INCLUDE}
+		return
+	fi
+
+
+	{
+		if [[ $tar_backup =~ '^Failed with item:' ]]; then
+			cat <<-EOF | print_box --align=left
+				There are non existing directories/files in 'exclude'
+				list. Fix config file and run 'bls' again.
+			EOF
+		else
+			print_box "We can not backup root directory in DATA backup!"
+		fi
+
+		local val_prefix="Invalid backup:"
+		local item
+
+		for item in {1..$#tar_backup}; do
+			print_off "${color_yellow}${(r:16:)val_prefix}${color_none} ${tar_backup[$item]#*:}"
+			val_prefix=""
+		done
+
+		print_off ""
+	} >&2
+
+	exit 1
+}
+
+select_restore_dir(){
+	local cwd=$(pwd)
+
+	BLS_RESTORE_DATA="/"
+
+	[[ $cwd = '/' ]] && return
+
+	# cat <<-EOF | print_box --align=left
+	cat <<-EOF | print_off
+		${color_yellow}
+		
+
+		You  can restore  files into original location or
+		current directory. Choose where you want files to
+		be restored:
+		${color_none}
+	EOF
+
+	print_off "${color_yellow}curr dir: ${color_none}$cwd"
+	print_off ""
+
+	local location=$(
+		locations=("Restore to:" "Original location" "Current dir")
+
+		select_menu_item \
+			"Where to restore files [${color_yellow}current dir${color_none}]: " \
+			"" \
+			$locations
+	)
+
+	if [[ $location -eq 1 ]]; then
+		BLS_RESTORE_DATA='/'
+	else
+		BLS_RESTORE_DATA=$cwd
+	fi
 }
 
 
@@ -2712,6 +3185,22 @@ mount_smb_share(){
 	fi >&2
 }
 
+tag_smb_share(){
+	[[ -f $BLS_TAG ]] && return
+
+	local error_msg=$(
+		touch $BLS_TAG 2>&1
+		progress_meter $! "Tagging share as backup storage"
+	)
+
+	[[ -f $BLS_TAG ]] && return
+
+	print_box "Failed to tag samba share as backup storage!"
+	print_off "${color_yellow}Error: ${color_none}$error_msg"
+
+	exit 1
+}
+
 unmount_smb_share(){
 	[[ -n $SAMBA_MOUNT ]] || return 0
 	[[ -d $SAMBA_MOUNT ]] || return 0
@@ -2769,6 +3258,7 @@ unmount_restore_dirs(){
 # selection functions
 #
 select_task(){
+
 	local tasks=($(collect_backup_tasks))
 
 	if [[ -z $tasks ]]; then
@@ -2810,6 +3300,7 @@ select_task(){
 }
 
 select_smb_server(){
+	[[ -n $SAMBA_IP ]] && return
 
 	local smb_servers=("${(@f)$(
 		collect_smb_servers &
@@ -2854,6 +3345,7 @@ select_smb_server(){
 }
 
 select_smb_share(){
+	[[ -n $SAMBA_SHARE ]] && return
 
 	local smb_login
 	local smb_password
