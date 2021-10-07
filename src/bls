@@ -42,8 +42,7 @@ CHECK_FOR_FAILES=1
 #
 TRAPEXIT(){
 	{
-		echo
-		echo '[0m'
+		echo -n '[0m'
 		tput cnorm
 		[[ -t 0 ]] && stty echo
 	} >/dev/tty
@@ -117,6 +116,7 @@ TRAPEXIT(){
 }
 
 TRAPINT(){
+	echo
 	return $((128 + $1))
 }
 
@@ -125,6 +125,7 @@ bls_init(){
 	#
 	color_yellow='[33m'
 	color_red='[31m'
+	color_gray='[90m'
 	color_none='[0m'
 	move_up='[1A'
 
@@ -174,8 +175,10 @@ exec_help(){
 
 		      backup [task] - run backup for 'task'
 		      restore       - restore system from backup
-		      chroot        - chroot to restored system
 		      list          - list backups on selected share
+		      delete        - delete backups from server/share
+
+		      chroot        - chroot to restored system
 		      mount         - mount selected samba share
 		      tag           - tag selected samba share as backup
 		                      storage
@@ -259,7 +262,7 @@ exec_restore(){
 	remove_failed_backups
 
 	select_backup_host
-	select_backup
+	select_backup_restore
 
 	# BLS_RESTORE="/mnt/bls-samba/maestral-test/2021-09-20_10x02"
 	# BLS_RESTORE="/mnt/bls-samba/maestral-test/2021-09-21_12x47"
@@ -329,6 +332,170 @@ exec_list(){
 	echo
 	echo $backup_list
 	echo
+
+}
+
+exec_delete(){
+	run_as_root
+	check_for_bls_instance
+
+	echo
+	free_samba_mount
+	select_smb_server
+	select_smb_share
+
+	mount_smb_share
+	remove_failed_backups
+
+	select_backup_host
+
+	# get list of backups on server/share
+	#
+	echo
+	local backups=("${(@f)$(
+		get_list_of_backups &
+
+		progress_meter $! "Creating list of backups"
+	)}")
+
+	if [[ -z $backups ]]; then
+		print_box "There are no backups on selected share!"
+
+		exit 1
+	fi
+
+	local header=("Host;Task;Type; Size;Date;Hour;Description")
+
+	# select backup you want to delete
+	#
+	clear
+	local selection=($(
+		select_menu_items \
+			"Select backups to delete [${color_yellow}end${color_none}]: " \
+			"" \
+			$header $backups
+	))
+
+	if [[ -z $selection ]]; then
+		print_box "You have not selecteda any backup for deletion!"
+
+		exit 1
+	fi
+
+
+	local selected=("${(@f)$(
+		local index
+		for index in $selection; do
+			echo $backups[$index]
+		done
+	)}")
+
+	local -A MENU_ITEMS_SELECTED=($(
+		local index
+		for index in {1..$#selected}; do
+			echo $index 2
+		done
+	))
+
+	# start backup deletion
+	#
+	local index
+	local yesno
+	local backup
+	local line_no=$((5 + $#selected))
+	local move_to_root="[${line_no}A[1G"
+	local backup_dir
+
+	clear
+	local deleted=()
+
+	for index in {1..$#selected}; do
+		MENU_ITEMS_SELECTED[$index]=1
+		echo
+		print_menu_items "---" $selected "---"
+
+		print_off ""
+		print_off -n "${color_yellow}Delete this backup [yes/NO]: ${color_none}[0K"
+		read yesno
+
+		if [[ -n $yesno ]] && [[ yes =~ ^${(L)yesno}.*$ ]]; then
+
+			backup_dir=$(
+				echo $selected[$index] |
+				awk -F\; '{
+					sub (":","x",$6)
+					print $1 "/" $2 "/" $5 "_" $6
+				}'
+			)
+
+			backup_dir="${SAMBA_MOUNT}/$backup_dir"
+
+			if [[ -d $backup_dir ]]; then
+				echo -n "${move_up}[0K"
+
+				rm -rf $backup_dir &
+				progress_meter $! "Deleteing backup no. $index"
+
+				deleted+=($index)
+			fi
+		fi
+
+		MENU_ITEMS_SELECTED[$index]=2
+		echo -n $move_to_root
+	done
+
+	clear
+	if [[ -z $deleted ]]; then
+		print_box "No backup was deleted!"
+	else
+
+		for index in $deleted; do
+			MENU_ITEMS_SELECTED[$index]=1
+		done
+
+		print_off ""
+		print_off "${color_yellow}Following backups were deleted:${color_none}"
+		print_off ""
+
+		print_menu_items "---" $selected "---"
+	fi
+
+	# calculate backup storage usage
+	#
+	local space=("${(@f)$(
+		df -BM $SAMBA_MOUNT |
+		perl -ne '
+			next if ($. == 1);
+			/^.*?\s+(\d+)M\s+(\d+)M\s+(\d+)M\s/;
+			$s_total = $1;
+			$s_used  = $2;
+			$s_free  = $3;
+
+			$p_used = int ((100 * $s_used / $s_total) + 0.5);
+			$p_free = int ((100 * $s_free / $s_total) + 0.5);
+
+			$g_total = int (10 * $s_total / 1024) / 10;
+			$g_used  = int (10 * $s_used  / 1024) / 10;
+			$g_free  = int (10 * $s_free  / 1024) / 10;
+
+			printf "%5.1fG\n", $g_total;
+			printf "%5.1fG (%2d%%)\n", $g_used, $p_used;
+			printf "%5.1fG (%2d%%)\n", $g_free, $p_free;
+
+			exit;
+		'
+	)}")
+
+
+	print_off ""
+	print_off "${color_yellow}Disk usage on backup server:${color_none}"
+	print_off "---------------------------------------------------------"
+	print_off "${color_yellow}Total:${color_none} $space[1]"
+	print_off "${color_yellow}Used: ${color_none} $space[2]"
+	print_off "${color_yellow}Free: ${color_none} $space[3]"
+	print_off ""
+
+	unmount_smb_share
 
 }
 
@@ -417,9 +584,8 @@ exec_test(){
 	SAMBA_LOGIN=""
 	SAMBA_PASSWD=""
 
-	# BLS_TASK=users
-
-	exec_backup users
+	exec_delete
+	# exec_backup users
 	# exec_restore "$@"
 }
 
@@ -1204,47 +1370,12 @@ remove_failed_backups(){
 list_backups(){
 	local header=("Host;Task;Type; Size;Date;Hour;Description")
 
-	collect_backups
-
-	exec 4>/dev/tty
+	# exec 4>/dev/tty
 
 	local backups=("${(@f)$(
-		(
-			local backup
-			local parts
-			local desc
-			local task
-			local btype
-			local size
-			local bdir
-
-			if [[ $BLS_BACKUP_HOST = '*' ]]; then
-				echo ${(j:\n:)${(@)BLS_BACKUP_LIST/#/${SAMBA_MOUNT}/}}
-			else
-				echo ${(j:\n:)${(@M)BLS_BACKUP_LIST:#${BLS_BACKUP_HOST}/*}/#/${SAMBA_MOUNT}/}
-			fi |
-
-			sort -V |
-
-			while read backup; do
-				btype=$(cat $backup/.bls-backup)
-				desc=$(cat $backup/.description)
-				size=$(du -ms $backup/system-image.tar.gz 2>/dev/null | awk '{printf "%.1f\n", $1 / 1024}')
-
-				[[ -n $size ]] && size="${size}G"
-
-				backup=${backup#$SAMBA_MOUNT/}
-				backup=${backup//\//;}
-				backup=$(echo $backup | sed -E -e 's/_(..)x(..)$/;\1:\2/')
-
-				parts=("${(@s:;:)backup}")
-
-				echo "$parts[1];$parts[2];[${(r:6:)btype}];${(l:5:)size};$parts[3];$parts[4];$desc"
-			done
-		) &
+		get_list_of_backups &
 
 		progress_meter $! "Creating list of backups"
-
 	)}")
 
 	if [[ -z $backups ]]; then
@@ -1253,7 +1384,49 @@ list_backups(){
 		return
 	fi
 
+	typeset -A MENU_ITEMS_SELECTED=(
+		1 ""
+		2 ""
+		5 ""
+	)
+
 	print_menu_items $header $backups "------"
+}
+
+get_list_of_backups(){
+	local backup
+	local parts
+	local desc
+	local task
+	local btype
+	local size
+	local bdir
+
+	collect_backups
+
+	if [[ $BLS_BACKUP_HOST = '*' ]]; then
+		echo ${(j:\n:)${(@)BLS_BACKUP_LIST/#/${SAMBA_MOUNT}/}}
+	else
+		echo ${(j:\n:)${(@M)BLS_BACKUP_LIST:#${BLS_BACKUP_HOST}/*}/#/${SAMBA_MOUNT}/}
+	fi |
+
+	sort -V |
+
+	while read backup; do
+		btype=$(cat $backup/.bls-backup)
+		desc=$(cat $backup/.description)
+		size=$(du -ms $backup/system-image.tar.gz 2>/dev/null | awk '{printf "%.1f\n", $1 / 1024}')
+
+		[[ -n $size ]] && size="${size}G"
+
+		backup=${backup#$SAMBA_MOUNT/}
+		backup=${backup//\//;}
+		backup=$(echo $backup | sed -E -e 's/_(..)x(..)$/;\1:\2/')
+
+		parts=("${(@s:;:)backup}")
+
+		echo "$parts[1];$parts[2];[${(r:6:)btype}];${(l:5:)size};$parts[3];$parts[4];$desc"
+	done
 }
 
 
@@ -3412,7 +3585,100 @@ select_smb_share(){
 
 }
 
-select_backup(){
+select_backup_restore(){
+	local backups=("Task;Date;Hour;Description")
+	local backup_type
+
+	if [[ $BLS_RUN_MODE = 'rescue' ]]; then
+		backup_type='system'
+	else
+		backup_type='data'
+	fi
+
+	collect_backups
+
+	local backup_dirs=("${(@f)$(
+		local backup
+
+		echo ${(j:\n:)${(@M)BLS_BACKUP_LIST:#${BLS_BACKUP_HOST}/*}/#/${SAMBA_MOUNT}/} |
+
+		while read backup; do
+			task=$(cat $backup/.bls-backup)
+			[[ $task =~ "^${backup_type}" ]] && echo $backup
+		done |
+		sort -V
+	)}")
+
+	backups+=("${(@f)$(
+		local backup
+		local parts
+		local task
+		local desc
+
+		for backup in $backup_dirs; do
+			task=$(cat $backup/.bls-backup)
+			desc=$(cat $backup/.description)
+
+			backup=${backup#$SAMBA_MOUNT/}
+			backup=${backup//\//;}
+			backup=$(echo $backup | sed -E -e 's/_(..)x(..)$/;\1:\2/')
+
+			parts=("${(@s:;:)backup}")
+
+			echo "$parts[2];$parts[3];$parts[4];$desc"
+		done
+	)}")
+
+
+	if [[ -z $backups[2] ]]; then
+		if [[ $backup_type = system ]]; then
+			cat <<-EOF | print_box --align=left
+				  You are runing Linux from rescue CD.  You can only
+				  restore system, but on selected server/share there
+				  is no 'system' backups!
+
+				  Exiting ...
+			EOF
+		else
+			local run_mode='normal running'
+			[[ $BLS_RUN_MODE = chroot ]] && run_mode='chrooted'
+
+			cat <<-EOF | print_box --align=left
+				This is ${run_mode} system. You can only restore
+				data from backup, but on selected server/share there
+				are no 'data' backups!
+
+				Exiting ...
+			EOF
+		fi
+
+		print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
+		print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
+
+		exit 1
+	fi
+
+	local restore=$(
+		select_menu_item \
+			"Select backup [${color_yellow}none${color_none}]: " \
+			"" \
+			$backups
+	)
+
+	if [[ -n $restore ]]; then
+		BLS_RESTORE=$backup_dirs[$restore]
+		return
+	fi
+
+	cat <<-EOF | print_box
+		You have not selected any backup!
+		Exiting ...
+	EOF
+
+	exit 1
+}
+
+select_backup_delete(){
 	local backups=("Task;Date;Hour;Description")
 	local backup_type
 
@@ -3766,15 +4032,17 @@ select_menu_item(){
 	local header=$1; shift
 	local items=("$@")
 
+	local MENU_ITEMS_SELECTED=()
 	{
 		echo 
-		print_menu_items "$header" "$@"
-	} >&3
+		print_menu_items "$header" "$@" "---"
 
-	# show footer
-	#
-	{
-		[[ -n $footer ]] && echo "\n   $footer"
+		if [[ -n $footer ]]; then
+			echo
+			echo ${(j:\n:)footer/#/   }
+			echo
+		fi
+
 		echo
 	} >&3
 
@@ -3799,6 +4067,59 @@ select_menu_item(){
 	echo $selection
 }
 
+select_menu_items(){
+	local prompt=$1; shift
+	local footer=("${(s:\n:)1}"); shift
+	local header=$1; shift
+	local items=("$@")
+
+	local line_no=$(($#items + 6))
+
+	[[ -n $footer ]] && line_no=$((line_no + 1 + $#footer))
+
+	local move_to_root="[${line_no}A[1G"
+	local -A MENU_ITEMS_SELECTED=()
+	local selection
+
+	while true; do
+
+		echo 
+		print_menu_items "$header" "$@" "---"
+		echo
+
+		if [[ -n $footer ]]; then
+			echo ${(j:\n:)footer/#/   }
+			echo
+		fi
+
+		echo
+
+		# select menu item
+		#
+		while true; do
+			echo -n "${move_up}"
+			echo -n "   $prompt[0K"
+			read selection
+
+			[[ -z $selection ]] && break
+			[[ ! $selection =~ '^[0-9]+$' ]] && continue
+
+			[[ $selection -ge 1 ]] && [[ $selection -le $#items ]] && break
+		done
+
+		[[ -z $selection ]] && break
+
+		if [[ $MENU_ITEMS_SELECTED[$selection] -eq 1 ]]; then
+			MENU_ITEMS_SELECTED[$selection]=0
+		else
+			MENU_ITEMS_SELECTED[$selection]=1
+		fi
+		echo -n $move_to_root
+	done >&3
+
+	echo ${(kon)MENU_ITEMS_SELECTED[(R)1]}
+}
+
 print_menu_items(){
 	# calculate widths
 	#
@@ -3810,6 +4131,7 @@ print_menu_items(){
 	local counter=0
 
 	for row in {1..$#items}; do
+		[[ -z $items[$row]         ]] && continue
 		[[ $items[$row] =~ '^---+' ]] && continue
 		[[ $items[$row] =~ '^   +' ]] && continue
 
@@ -3843,6 +4165,7 @@ print_menu_items(){
 	local void=""
 
 	for row in {1..$#items}; do
+		[[ -z $items[$row]         ]] && continue
 
 		if [[ $items[$row] =~ '^---+' ]]; then
 			echo "   ${(l:$total_width::.:)void}"
@@ -3859,7 +4182,10 @@ print_menu_items(){
 			if [[ $row -ne 1 ]] && [[ $col -eq 1 ]]; then
 				echo -n "${(l:$widths[$col]:)parts[col]}  "
 			else
-				echo -n "${(r:$widths[$col]:)parts[col]}  "
+				[[ ${MENU_ITEMS_SELECTED[$((row-1))]} -eq 1 ]] && echo -n ${color_yellow}
+				[[ ${MENU_ITEMS_SELECTED[$((row-1))]} -eq 2 ]] && echo -n ${color_gray}
+				 
+				echo -n "${(r:$widths[$col]:)parts[col]}${color_none}  "
 			fi
 		done
 		echo
@@ -4004,7 +4330,7 @@ parse_arguments(){
 	# options
 	#   -t test (dry run)
 	#
-	local commands=(help info tag backup restore list chroot mount test)
+	local commands=(help info tag backup restore list chroot mount test delete)
 	local ARGS TREE_LEVEL
 	
 	BLS_TEST=0
