@@ -584,7 +584,7 @@ exec_test(){
 	SAMBA_LOGIN=""
 	SAMBA_PASSWD=""
 
-	exec_delete
+	exec_backup
 	# exec_backup users
 	# exec_restore "$@"
 }
@@ -1449,7 +1449,16 @@ exclusion_list_system(){
 }
 
 exclusion_list_data(){
-	local -U tar_exclude=()
+	local -U tar_exclude=(
+		/proc
+		/sys
+		/dev
+		/run
+		/tmp
+		/media
+		/var/tmp
+		lost+found
+	)
 
 	exclusion_list_config
 }
@@ -2718,13 +2727,11 @@ check_task(){
 	#
 	# - valid keys:
 	#     - backup
-	#     - include
 	#     - exclude
 	#     - type
 	#     - mounts
 	#
 	# if system:
-	#   - must not have "include"
 	#   - must not have "backup"
 	#   - "mount" can only have absolute paths
 	#   - mount dir(s) must exist (check before execution)
@@ -2733,7 +2740,6 @@ check_task(){
 	#   - must not have "mounts"
 	#   - must have "backup"
 	#   - "backup"  can only have absolute paths
-	#   - "include" can only have file patterns
 	#   - "backup" must produce files/dirs (check before execution)
 	#
 
@@ -2760,7 +2766,7 @@ check_task(){
 	
 	# check for valid config keys
 	#
-	local valid_keys=(TYPE BACKUP INCLUDE EXCLUDE MOUNTS)
+	local valid_keys=(TYPE BACKUP EXCLUDE MOUNTS)
 	local task_keys=($(
 		typeset + |
 		awk '
@@ -2905,7 +2911,7 @@ check_data_task(){
 
 	# valid keys in 'data' backup
 	#
-	local valid_keys=(TYPE BACKUP INCLUDE EXCLUDE)
+	local valid_keys=(TYPE BACKUP EXCLUDE)
 	local invalid_keys=(${task_keys:|valid_keys})
 
 	if [[ -n $invalid_keys ]]; then
@@ -2970,27 +2976,6 @@ check_data_task(){
 		print_off ""
 		exit 1
 	fi
-
-	# include values must have only file patterns
-	#
-	rel_paths=("${(@M)BLS_CONFIG_INCLUDE:#*/*}")
-	val_prefix="Invalid values:"
-
-	if [[ -n $rel_paths ]]; then
-		cat <<-EOF | print_box --align=left
-		   Task config error: 'include' key can only have
-		   file patterns for values!
-		EOF
-
-		for err_val in ${(oL)rel_paths}; do
-			print_off "${color_yellow}${(r:15:)val_prefix}${color_none} $err_val"
-			val_prefix=""
-		done
-
-		print_off ""
-		exit 1
-	fi
-
 }
 
 
