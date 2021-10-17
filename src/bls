@@ -47,6 +47,8 @@ TRAPEXIT(){
 		[[ -t 0 ]] && stty echo
 	} >/dev/tty
 
+	[[ -n $__ZPROGRESS_RUNNER_PID ]] && kill -9 $__ZPROGRESS_RUNNER_PID
+
     [[ $NO_TRAP_EXIT -eq 1 ]] && return
 
 	[[ -n $BLS_LOCK ]] && rm -f $BLS_LOCK
@@ -304,45 +306,45 @@ exec_list(){
 	select_backup_host all
 
 	echo
-	local backup_list=$(list_backups)
+	local backups=("${(@f)$(
+		get_list_of_backups &
 
-	local space=("${(@f)$(
-		df -BM $SAMBA_MOUNT |
-		perl -ne '
-			next if ($. == 1);
-			/^.*?\s+(\d+)M\s+(\d+)M\s+(\d+)M\s/;
-			$s_total = $1;
-			$s_used  = $2;
-			$s_free  = $3;
-
-			$p_used = int ((100 * $s_used / $s_total) + 0.5);
-			$p_free = int ((100 * $s_free / $s_total) + 0.5);
-
-			$g_total = int (10 * $s_total / 1024) / 10;
-			$g_used  = int (10 * $s_used  / 1024) / 10;
-			$g_free  = int (10 * $s_free  / 1024) / 10;
-
-			printf "%5.1fG\n", $g_total;
-			printf "%5.1fG (%2d%%)\n", $g_used, $p_used;
-			printf "%5.1fG (%2d%%)\n", $g_free, $p_free;
-
-			exit;
-		'
+		progress_meter $! "Creating list of backups"
 	)}")
 
+	if [[ -z $backups ]]; then
+		print_box "There are no backups on selected server/share!"
+
+		exit 1
+	fi
+
+	local void
+	local menu_prompt=""
+
+	menu_prompt+="[${color_g}ENTER: ${color_n}exit] "
+	menu_prompt+="[${color_g}ESCAPE: ${color_n}exit] "
+	menu_prompt+="[${color_g}CTRL+C: ${color_n}exit]"
+
+	clear
+
+	echo
+	echo
+	zmenu select void\
+		--focus 1 \
+		--color 'b c b g b c c b' \
+		--align "r l l c r l" \
+		--spaces "1 2 ' [' '] ' ' [' 1 '] ' 2" \
+		--no-bottom-line \
+		--title "${color_y}List of backups on: ${color_n}${SAMBA_SERVER}" \
+		--prompt "$menu_prompt" \
+		$backups
+
+	echo
+	echo
+	show_backup_storage_usage
+	echo
+
 	unmount_smb_share
-
-	echo
-	print_off "${color_y}Disk usage on backup server:${color_n}"
-	print_off "---------------------------------------------------------"
-	print_off "${color_y}Total:${color_n} $space[1]"
-	print_off "${color_y}Used: ${color_n} $space[2]"
-	print_off "${color_y}Free: ${color_n} $space[3]"
-	echo
-
-	echo
-	echo $backup_list
-	echo
 
 }
 
@@ -361,46 +363,10 @@ exec_delete(){
 	mount_smb_share
 	remove_failed_backups
 
-	select_backup_host
+	local selected
+	select_backup_delete selected
 
-	# get list of backups on server/share
-	#
-	echo
-	local backups=("${(@f)$(
-		get_list_of_backups &
-
-		progress_meter $! "Creating list of backups"
-	)}")
-
-	if [[ -z $backups ]]; then
-		print_box "There are no backups on selected share!"
-
-		exit 1
-	fi
-
-	# select backup you want to delete
-	#
-	local selection
-	local menu_prompt=""
-
-	menu_prompt+="[${color_g}ENTER: ${color_n}select] "
-	menu_prompt+="[${color_g}CTRL+X: ${color_n}end] "
-	menu_prompt+="[${color_g}CTRL+C: ${color_n}quit] "
-	menu_prompt+="[${color_g}Use: ${color_c}PageUp PageDown Home End${color_n}] "
-
-	clear
-	zmenu select selection \
-		--multy \
-		--align "r l l c r l" \
-		--color "b b g g b c c b" \
-		--spaces "1 1 2 ' [' '] ' ' [' 1 '] ' 2" \
-		--prompt $menu_prompt \
-		--header "Host;Task;Type; Size;Time;;Description"\
-		--width 57  \
-		--title "${color_y}Select backups to delete:" \
-		$backups
-
-	if [[ -z $selection ]]; then
+	if [[ -z $selected ]]; then
 		echo
 		echo
 		print_box "You have not selected any backup for deletion!"
@@ -410,196 +376,35 @@ exec_delete(){
 	fi
 
 
-	local i
-	local selected=()
-	local deleted=()
-
-	for i in $selection; do
-		selected+=("${backups[$i]}")
-	done
-
-	zterm cursor off
-	clear
-	for i in {1..$#selection}; do
-		zterm cursor position 1 1
-
-		#                                                                                                             >
-		echo
-		echo
-		zmenu print \
-			--focus $i \
-			--focus-colors "c n" \
-			--width 57  \
-			--color "c d" \
-			--align "r l l c r l" \
-			--no-cell-color \
-			--title "${color_y}Backup to delete:" \
-			$selected
-
-		echo
-
-		zterm cursor on
-		print_off -n "${color_y}Delete this backup [yes/NO]: ${color_n}[0K"
-		read yesno
-		zterm cursor restore
-
-		[[ -z $yesno ]] || [[ ! yes =~ ^${(L)yesno}.*$ ]] && continue
-
-		backup_dir=$(
-			echo $selected[$i] |
-			awk -F\; '{
-				sub (":","x",$6)
-				print $1 "/" $2 "/" $5 "_" $6
-			}'
-		)
-
-		backup_dir="${SAMBA_MOUNT}/$backup_dir"
-
-		if [[ -d $backup_dir ]]; then
-			echo -n "${move_up}[0K"
-
-			# rm -rf $backup_dir &
-			(sleep 0.5) &
-			progress_meter $! "Deleteing backup no. $i"
-
-			deleted+=($i)
-		fi
-	done
-
+	local deleted 
+	delete_backups deleted $selected
 
 	if [[ -z $deleted ]]; then
 		echo
-		print_box "No backup was deleted!"
+		print_box "No backups were deleted!"
 		echo
 
-		zterm cursor restore
 		exit 1
 	fi
 
-	local gone=()
-	for i in $deleted; do
-		gone+=("${selected[$i]}")
-	done
 
-	zterm cursor position 1 1
-	zterm clear line; echo
-	zterm clear line; echo
+	clear
 
-	zterm clear down
-
-		# --color "c c" \
-		# --align "r l" \
+	echo
+	echo
 	zmenu print \
-		--raw \
 		--no-bottom-line \
 		--title "${color_y}Following backups were deleted:${color_n}" \
 		--focus 0 \
 		--width 57  \
 		--align "r l l c r l" \
-		--color "b g g g b c c b" \
+		--color "b c c g b c c b" \
 		--spaces "1 2 ' [' '] ' ' [' 1 '] ' 2" \
-		$gone
-
-	zterm cursor down $(($#selected - $#deleted + 2))
-	zterm cursor restore
-	exit
-
-	# start backup deletion
-	#
-	local index
-	local yesno
-	local backup
-	local line_no=$((5 + $#selected))
-	local move_to_root="[${line_no}A[1G"
-	local backup_dir
-
-	clear
-	local deleted=()
-
-	for index in {1..$#selected}; do
-		MENU_ITEMS_SELECTED[$index]=1
-		echo
-		print_menu_items "---" $selected "---"
-
-		echo
-		print_off -n "${color_y}Delete this backup [yes/NO]: ${color_n}[0K"
-		read yesno
-
-		if [[ -n $yesno ]] && [[ yes =~ ^${(L)yesno}.*$ ]]; then
-
-			backup_dir=$(
-				echo $selected[$index] |
-				awk -F\; '{
-					sub (":","x",$6)
-					print $1 "/" $2 "/" $5 "_" $6
-				}'
-			)
-
-			backup_dir="${SAMBA_MOUNT}/$backup_dir"
-
-			if [[ -d $backup_dir ]]; then
-				echo -n "${move_up}[0K"
-
-				rm -rf $backup_dir &
-				progress_meter $! "Deleteing backup no. $index"
-
-				deleted+=($index)
-			fi
-		fi
-
-		MENU_ITEMS_SELECTED[$index]=2
-		echo -n $move_to_root
-	done
-
-	clear
-	if [[ -z $deleted ]]; then
-		print_box "No backup was deleted!"
-	else
-
-		for index in $deleted; do
-			MENU_ITEMS_SELECTED[$index]=1
-		done
-
-		echo
-		print_off "${color_y}Following backups were deleted:${color_n}"
-		echo
-
-		print_menu_items "---" $selected "---"
-	fi
-
-	# calculate backup storage usage
-	#
-	local space=("${(@f)$(
-		df -BM $SAMBA_MOUNT |
-		perl -ne '
-			next if ($. == 1);
-			/^.*?\s+(\d+)M\s+(\d+)M\s+(\d+)M\s/;
-			$s_total = $1;
-			$s_used  = $2;
-			$s_free  = $3;
-
-			$p_used = int ((100 * $s_used / $s_total) + 0.5);
-			$p_free = int ((100 * $s_free / $s_total) + 0.5);
-
-			$g_total = int (10 * $s_total / 1024) / 10;
-			$g_used  = int (10 * $s_used  / 1024) / 10;
-			$g_free  = int (10 * $s_free  / 1024) / 10;
-
-			printf "%5.1fG\n", $g_total;
-			printf "%5.1fG (%2d%%)\n", $g_used, $p_used;
-			printf "%5.1fG (%2d%%)\n", $g_free, $p_free;
-
-			exit;
-		'
-	)}")
-
+		$deleted
 
 	echo
-	print_off "${color_y}Disk usage on backup server:${color_n}"
-	print_off "---------------------------------------------------------"
-	print_off "${color_y}Total:${color_n} $space[1]"
-	print_off "${color_y}Used: ${color_n} $space[2]"
-	print_off "${color_y}Free: ${color_n} $space[3]"
+	echo
+	show_backup_storage_usage
 	echo
 
 	unmount_smb_share
@@ -1478,27 +1283,18 @@ remove_failed_backups(){
 list_backups(){
 	local header=("Host;Task;Type;  Size;Time;;Description")
 
-	# exec 4>/dev/tty
-
-	local backups=("${(@f)$(
-		get_list_of_backups &
-
-		progress_meter $! "Creating list of backups"
-	)}")
+	zprogress spinner "Creating list of backups"
+	local backups=("${(@f)$(get_list_of_backups)}")
+	zprogress end "DONE"
 
 	if [[ -z $backups ]]; then
 		print_box "There are no backups on selected server/share!"
 
-		return
+		exit 1
 	fi
 
-	typeset -A MENU_ITEMS_SELECTED=(
-		1 ""
-		2 ""
-		5 ""
-	)
-
 	zmenu print \
+		--raw \
 		--focus 0 \
 		--color 'b c b g b c c b' \
 		--align "r l l c r l" \
@@ -1527,8 +1323,6 @@ get_list_of_backups(){
 		echo ${(j:\n:)${(@M)BLS_BACKUP_LIST:#${BLS_BACKUP_HOST}/*}/#/${SAMBA_MOUNT}/}
 	fi |
 
-	sort -V |
-
 	while read backup; do
 		btype=$(cat $backup/.bls-backup)
 		desc=$(cat $backup/.description)
@@ -1544,8 +1338,11 @@ get_list_of_backups(){
 
 		[[ $btype = system ]] && btype="y:system"
 
+		#     host      task      type   size  date      hour      desc
+		#
 		echo "$parts[1];$parts[2];$btype;$size;$parts[3];$parts[4];$desc"
-	done
+	done |
+	sort -t\; -k1,1 -k2r,2 -k5
 }
 
 
@@ -1855,6 +1652,110 @@ select_restore_dir(){
 	else
 		BLS_RESTORE_DATA=$cwd
 	fi
+}
+
+
+delete_backups(){
+	local __container=$1; shift
+	local __selected=("$@")
+	local __deleted=()
+
+	zterm cursor off
+
+	# clear
+	for i in {1..$#__selected}; do
+		zterm cursor position 1 1
+
+		zterm clear line; echo
+		zterm clear line; echo
+
+		zmenu print \
+			--focus $i \
+			--focus-colors "c n" \
+			--width 57  \
+			--color "c d" \
+			--align "r l l c r l" \
+			--no-cell-color \
+			--title "${color_y}Backup to delete:" \
+			$__selected
+
+		zterm clear down
+		zterm cursor on
+
+		echo
+		print_off -n "${color_y}Delete this backup [yes/NO]: ${color_n}[0K"
+		read yesno
+		zterm cursor restore
+
+		[[ -z $yesno ]] || [[ ! yes =~ ^${(L)yesno}.*$ ]] && continue
+
+		backup_dir=$(
+			echo $__selected[$i] |
+			awk -F\; '{
+				sub (":","x",$6)
+				print $1 "/" $2 "/" $5 "_" $6
+			}'
+		)
+
+		backup_dir="${SAMBA_MOUNT}/$backup_dir"
+
+		if [[ -d $backup_dir ]]; then
+			echo -n "${move_up}[0K"
+
+			zprogress spinner "Deleting backup no. $i"
+			# rm -rf $backup_dir #&
+			sleep 2
+			# progress_meter $! "Deleteing backup no. $i"
+			zprogress end "DONE"
+
+			__deleted+=($i)
+		fi
+	done
+
+	local __result=()
+
+	for i in $__deleted; do
+		__result+=("${__selected[$i]}")
+	done
+
+	eval "$(typeset -p __result | sed -e "s/typeset -a __result/$__container/")"
+
+	zterm cursor restore
+}
+
+show_backup_storage_usage(){
+
+	# calculate backup storage usage
+	#
+	local space=("${(@f)$(
+		df -BM $SAMBA_MOUNT |
+		perl -ne '
+			next if ($. == 1);
+			/^.*?\s+(\d+)M\s+(\d+)M\s+(\d+)M\s/;
+			$s_total = $1;
+			$s_used  = $2;
+			$s_free  = $3;
+
+			$p_used = int ((100 * $s_used / $s_total) + 0.5);
+			$p_free = int ((100 * $s_free / $s_total) + 0.5);
+
+			$g_total = int (10 * $s_total / 1024) / 10;
+			$g_used  = int (10 * $s_used  / 1024) / 10;
+			$g_free  = int (10 * $s_free  / 1024) / 10;
+
+			printf "%5.1fG\n", $g_total;
+			printf "%5.1fG (%2d%%)\n", $g_used, $p_used;
+			printf "%5.1fG (%2d%%)\n", $g_free, $p_free;
+
+			exit;
+		'
+	)}")
+
+	print_off "${color_y}Disk usage on backup server:${color_n}"
+	print_off "---------------------------------------------------------"
+	print_off "${color_y}Total:${color_n} $space[1]"
+	print_off "${color_y}Used: ${color_n} $space[2]"
+	print_off "${color_y}Free: ${color_n} $space[3]"
 }
 
 
@@ -3588,10 +3489,9 @@ select_task(){
 select_smb_server(){
 	[[ -n $SAMBA_IP ]] && return
 
-	local smb_servers=("${(@f)$(
-		collect_smb_servers &
-		progress_meter $! "Collecting samba servers on network"
-	)}")
+	zprogress spinner "Collecting samba servers on network"
+	local smb_servers=("${(@f)$(collect_smb_servers)}")
+	zprogress end DONE
 
 
 
@@ -3796,99 +3696,54 @@ select_backup_restore(){
 }
 
 select_backup_delete(){
-	local backups=()
-	local backup_type
+	local __container=$1; shift
 
-	if [[ $BLS_RUN_MODE = 'rescue' ]]; then
-		backup_type='system'
-	else
-		backup_type='data'
-	fi
+	select_backup_host
 
-	collect_backups
+	# get list of backups on server/share
+	#
+	echo
 
-	local backup_dirs=("${(@f)$(
-		local backup
+	zprogress spinner "Creating list of backups"
+	local __backups=("${(@f)$(get_list_of_backups)}")
+	zprogress end "DONE"
 
-		echo ${(j:\n:)${(@M)BLS_BACKUP_LIST:#${BLS_BACKUP_HOST}/*}/#/${SAMBA_MOUNT}/} |
-
-		while read backup; do
-			task=$(cat $backup/.bls-backup)
-			[[ $task =~ "^${backup_type}" ]] && echo $backup
-		done |
-		sort -V
-	)}")
-
-	backups+=("${(@f)$(
-		local backup
-		local parts
-		local task
-		local desc
-
-		for backup in $backup_dirs; do
-			task=$(cat $backup/.bls-backup)
-			desc=$(cat $backup/.description)
-
-			backup=${backup#$SAMBA_MOUNT/}
-			backup=${backup//\//;}
-			backup=$(echo $backup | sed -E -e 's/_(..)x(..)$/;\1:\2/')
-
-			parts=("${(@s:;:)backup}")
-
-			echo "$parts[2];$parts[3];$parts[4];$desc"
-		done
-	)}")
-
-
-	if [[ -z $backups[2] ]]; then
-		if [[ $backup_type = system ]]; then
-			cat <<-EOF | print_box --align=left
-				  You are runing Linux from rescue CD.  You can only
-				  restore system, but on selected server/share there
-				  is no 'system' backups!
-
-				  Exiting ...
-			EOF
-		else
-			local run_mode='normal running'
-			[[ $BLS_RUN_MODE = chroot ]] && run_mode='chrooted'
-
-			cat <<-EOF | print_box --align=left
-				This is ${run_mode} system. You can only restore
-				data from backup, but on selected server/share there
-				are no 'data' backups!
-
-				Exiting ...
-			EOF
-		fi
-
-		print_off "${color_y}Server: ${color_n}$SAMBA_SERVER"
-		print_off "${color_y}Share:  ${color_n}$SAMBA_SHARE"
+	if [[ -z $__backups ]]; then
+		print_box "There are no backups on selected share!"
 
 		exit 1
 	fi
 
-	local restore
+	# select backup you want to delete
+	#
+	local __menu_prompt=""
 
-	zmenu select restore\
-		--no-bottom-line \
+	__menu_prompt+="[${color_g}ENTER: ${color_n}select] "
+	__menu_prompt+="[${color_g}CTRL+X: ${color_n}end] "
+	__menu_prompt+="[${color_g}CTRL+C: ${color_n}quit] "
+	__menu_prompt+="[${color_g}Use: ${color_c}PageUp PageDown Home End${color_n}] "
+
+	local __selection
+
+	clear
+	zmenu select __selection \
+		--multy \
+		--align "r l l c r l" \
+		--color "b b g g b c c b" \
+		--spaces "1 1 2 ' [' '] ' ' [' 1 '] ' 2" \
+		--prompt "$menu_prompt" \
+		--header "Host;Task;Type; Size;Time;;Description"\
 		--width 57  \
-		--color "b j" \
-		--align "r j" \
-		--title "${color_b}Select backup to delete:" \
-		$backups
+		--title "${color_y}Select backups to delete:" \
+		$__backups
 
-	if [[ -n $restore ]]; then
-		BLS_RESTORE=$backup_dirs[$restore]
-		return
-	fi
+	local __result=()
+	local i
+	for i in $__selection; do
+		__result+=("${__backups[$i]}")
+	done
 
-	cat <<-EOF | print_box
-		You have not selected any backup!
-		Exiting ...
-	EOF
-
-	exit 1
+	eval "$(typeset -p __result | sed -e "s/typeset -a __result/$__container/")"
 }
 
 select_backup_host(){
@@ -3909,12 +3764,12 @@ select_backup_host(){
 
 	local all_hosts
 
-	[[ $1 = all ]] && all_hosts=("   " "backups from all systems")
+	[[ $1 = all ]] && all_hosts=("   " "g:backups from all systems")
 
 	local host
 
 	zmenu select host \
-		--no-bottom-line \
+		--focus $(($#hosts + 2)) \
 		--width 57  \
 		--color "b y" \
 		--align "r l" \
@@ -4413,6 +4268,67 @@ check_for_bls_instance(){
 
 
 ###############################################
+# progress functions
+#
+zprogress(){
+	local zp_cmd=$1; shift
+
+	case $zp_cmd; in
+		spinner) __zprogress_spinner "$@";;
+		end)     __zprogress_end     "$@";;
+	esac
+}
+
+__zprogress_end(){
+	local message=" $1"
+
+	kill -9 $__ZPROGRESS_RUNNER_PID
+	__ZPROGRESS_RUNNER_PID=""
+
+	echo "[${#message}D$message"
+	zterm cursor restore >/dev/tty
+}
+
+__zprogress_spinner(){
+
+	zterm cursor off >/dev/tty
+	__zprogress_spinner_run "$@" &
+
+	__ZPROGRESS_RUNNER_PID=$!
+}
+
+__zprogress_spinner_run(){
+	local text=$1
+	local text_width=60
+	local dots=$((text_width - 4 - ${#text}))
+	local void=""
+
+
+	{
+		echo
+		echo -n "${move_up}"
+		echo -n "   ${color_y}${text}${color_n} ${(l:$dots::.:)void}"
+
+		local spinner_step=1
+		local step_time=0.08
+		local spinner='|/-\'
+
+		while true; do
+			echo -n '[2D' $spinner[$spinner_step]
+			sleep $step_time
+
+			# [[ ! -d /proc/$process_id ]] && break
+
+			spinner_step=$((++spinner_step))
+			[[ $spinner_step -gt 4 ]] && spinner_step=1
+		done
+
+
+	} # >&3
+}
+
+
+###############################################
 #  terminal functions
 #
 zterm(){
@@ -4652,7 +4568,7 @@ __zmenu_print(){
 	__zmenu_create_space
 	__zmenu_print_full
 
-	zterm cursor position $zm_pos_zle 1
+	zterm cursor position $zm_pos_zle 1 >&$zm_raw
 }
 
 
@@ -4662,7 +4578,7 @@ __zmenu_print(){
 #
 __zmenu_variables(){
 	cat <<-EOF |
-		zm_raw             # showul cursor movement be printed (default YES)
+		zm_raw=1           # should cursor movement be printed (default YES)
 		zm_multy=0         # will we select multiple items
 		                   # (default NO)
 		zm_width=0         # required minimal width of menu
@@ -4877,7 +4793,7 @@ __zmenu_parse_options(){
 
 	# set options given as arguments
 	#
-	[[ ${+ARGS[--raw]}   -eq 1 ]] && zm_raw='>/dev/null'
+	[[ ${+ARGS[--raw]}   -eq 1 ]] && zm_raw=0
 	[[ ${+ARGS[--multy]} -eq 1 ]] && zm_multy=1
 
 	[[ ${+ARGS[--no-enumerate]}   -eq 1 ]] && zm_enum=0
@@ -4889,6 +4805,17 @@ __zmenu_parse_options(){
 
 	zm_items=("$@")
 	zm_focus_last=$zm_focus
+
+	if [[ $zm_cmd = print ]]; then
+		if [[ $zm_raw -eq 0 ]]; then
+			exec {zm_raw}>/dev/null
+		else
+			exec {zm_raw}>&1
+		fi
+
+	else
+		exec {zm_raw}>&1
+	fi
 }
 
 
@@ -5178,6 +5105,7 @@ __zmenu_calculate_widths(){
 			item=$parts[$col]
 			width=${#item#?:}
 
+			[[ ${+zm_widths[$col]} -eq 0   ]] && zm_widths[$col]=0
 			[[ $zm_widths[$col] -lt $width ]] && zm_widths[$col]=$width
 		done
 	done
@@ -5607,7 +5535,7 @@ __zmenu_item_select_invert(){
 __zmenu_print_full(){
 	local void=""
 
-	zterm cursor position $zm_pos_root 1 $zm_raw
+	zterm cursor position $zm_pos_root 1 >&$zm_raw
 
 	# escape codes:
 	#   [K   - erase line from cursor till end
@@ -5665,7 +5593,7 @@ __zmenu_print_full(){
 __zmenu_print_item(){
 	local item_no=$1
 
-	zterm cursor position $((zm_pos_items + item_no - 1)) 1 $zm_raw
+	zterm cursor position $((zm_pos_items + item_no - 1)) 1 >&$zm_raw
 
 	local item
 	if [[ $item_no -eq $zm_focus ]]; then
@@ -5748,8 +5676,8 @@ __zmenu_create_space(){
 	if [[ $missing -gt 0 ]]; then
 		local i
 
-		zterm cursor position $lines 1 $zm_raw
-		for i in {1..$missing}; do echo $zm_raw; done
+		zterm cursor position $lines 1 >&$zm_raw
+		for i in {1..$missing}; do echo >&$zm_raw; done
 		position[1]=$(($position[1] - missing))
 	fi
 
