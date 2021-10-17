@@ -71,8 +71,8 @@ TRAPEXIT(){
 
 			print_off "${color_yellow}Directory: ${color_none}${BLS_RESTORE_DIR}"
 			print_off "${color_yellow}Error msg: ${color_none}${${ERROR_MESSAGE##*: }%.}"
-			print_off ""
-			print_off ""
+			echo
+			echo
 		fi
 	fi
 
@@ -87,8 +87,8 @@ TRAPEXIT(){
 
 			print_off "${color_yellow}Directory: ${color_none}${SAMBA_MOUNT}"
 			print_off "${color_yellow}Error msg: ${color_none}${${ERROR_MESSAGE##*: }%.}"
-			print_off ""
-			print_off ""
+			echo
+			echo
 		elif [[ -d $SAMBA_MOUNT ]]; then
 			cd
 			ERROR_MESSAGE=$(
@@ -104,8 +104,8 @@ TRAPEXIT(){
 
 				print_off "${color_yellow}Directory: ${color_none}${SAMBA_MOUNT}"
 				print_off "${color_yellow}Error msg: ${color_none}${${ERROR_MESSAGE##*: }%.}"
-				print_off ""
-				print_off ""
+				echo
+				echo
 			else
 				echo
 			fi
@@ -123,16 +123,25 @@ TRAPINT(){
 bls_init(){
 	# define ansi colors
 	#
-	color_yellow='[33m'
-	color_red='[31m'
-	color_gray='[90m'
-	color_none='[0m'
+	color_d='[30m'   # dark   (black)
+	color_r='[31m'   # red
+	color_g='[32m'   # green
+	color_y='[33m'   # yellow
+	color_b='[34m'   # blue
+	color_m='[35m'   # magenta
+	color_c='[36m'   # cyan
+	color_w='[37m'   # white
+	color_s='[90m'   # silver (gray)
+	color_n='[0m'    # none
+
 	move_up='[1A'
 
 	# open info channel
 	#
 	exec 3> /dev/tty
 
+	zterm init
+	zmenu init
 }
 
 get_run_mode(){
@@ -202,6 +211,7 @@ exec_info(){
 }
 
 exec_backup(){
+
 	run_as_root
 	check_for_bls_instance
 	get_run_mode
@@ -227,8 +237,8 @@ exec_backup(){
 		exit 1
 	fi
 
+	clear; echo
 
-	echo
 	check_config_file
 	free_samba_mount
 
@@ -282,7 +292,8 @@ exec_list(){
 	run_as_root
 	check_for_bls_instance
 
-	echo
+	clear; echo
+
 	free_samba_mount
 	select_smb_server
 	select_smb_share
@@ -321,13 +332,13 @@ exec_list(){
 
 	unmount_smb_share
 
-	print_off ""
-	print_off "${color_yellow}Disk usage on backup server:${color_none}"
+	echo
+	print_off "${color_y}Disk usage on backup server:${color_n}"
 	print_off "---------------------------------------------------------"
-	print_off "${color_yellow}Total:${color_none} $space[1]"
-	print_off "${color_yellow}Used: ${color_none} $space[2]"
-	print_off "${color_yellow}Free: ${color_none} $space[3]"
-	print_off ""
+	print_off "${color_y}Total:${color_n} $space[1]"
+	print_off "${color_y}Used: ${color_n} $space[2]"
+	print_off "${color_y}Free: ${color_n} $space[3]"
+	echo
 
 	echo
 	echo $backup_list
@@ -339,11 +350,14 @@ exec_delete(){
 	run_as_root
 	check_for_bls_instance
 
+	clear
+
 	echo
 	free_samba_mount
 	select_smb_server
 	select_smb_share
 
+	echo
 	mount_smb_share
 	remove_failed_backups
 
@@ -364,38 +378,131 @@ exec_delete(){
 		exit 1
 	fi
 
-	local header=("Host;Task;Type; Size;Date;Hour;Description")
-
 	# select backup you want to delete
 	#
+	local selection
+	local menu_prompt=""
+
+	menu_prompt+="[${color_g}ENTER: ${color_n}select] "
+	menu_prompt+="[${color_g}CTRL+X: ${color_n}end] "
+	menu_prompt+="[${color_g}CTRL+C: ${color_n}quit] "
+	menu_prompt+="[${color_g}Use: ${color_c}PageUp PageDown Home End${color_n}] "
+
 	clear
-	local selection=($(
-		select_menu_items \
-			"Select backups to delete [${color_yellow}end${color_none}]: " \
-			"" \
-			$header $backups
-	))
+	zmenu select selection \
+		--multy \
+		--align "r l l c r l" \
+		--color "b b g g b c c b" \
+		--spaces "1 1 2 ' [' '] ' ' [' 1 '] ' 2" \
+		--prompt $menu_prompt \
+		--header "Host;Task;Type; Size;Time;;Description"\
+		--width 57  \
+		--title "${color_y}Select backups to delete:" \
+		$backups
 
 	if [[ -z $selection ]]; then
-		print_box "You have not selecteda any backup for deletion!"
+		echo
+		echo
+		print_box "You have not selected any backup for deletion!"
+		echo
 
 		exit 1
 	fi
 
 
-	local selected=("${(@f)$(
-		local index
-		for index in $selection; do
-			echo $backups[$index]
-		done
-	)}")
+	local i
+	local selected=()
+	local deleted=()
 
-	local -A MENU_ITEMS_SELECTED=($(
-		local index
-		for index in {1..$#selected}; do
-			echo $index 2
-		done
-	))
+	for i in $selection; do
+		selected+=("${backups[$i]}")
+	done
+
+	zterm cursor off
+	clear
+	for i in {1..$#selection}; do
+		zterm cursor position 1 1
+
+		#                                                                                                             >
+		echo
+		echo
+		zmenu print \
+			--focus $i \
+			--focus-colors "c n" \
+			--width 57  \
+			--color "c d" \
+			--align "r l l c r l" \
+			--no-cell-color \
+			--title "${color_y}Backup to delete:" \
+			$selected
+
+		echo
+
+		zterm cursor on
+		print_off -n "${color_y}Delete this backup [yes/NO]: ${color_n}[0K"
+		read yesno
+		zterm cursor restore
+
+		[[ -z $yesno ]] || [[ ! yes =~ ^${(L)yesno}.*$ ]] && continue
+
+		backup_dir=$(
+			echo $selected[$i] |
+			awk -F\; '{
+				sub (":","x",$6)
+				print $1 "/" $2 "/" $5 "_" $6
+			}'
+		)
+
+		backup_dir="${SAMBA_MOUNT}/$backup_dir"
+
+		if [[ -d $backup_dir ]]; then
+			echo -n "${move_up}[0K"
+
+			# rm -rf $backup_dir &
+			(sleep 0.5) &
+			progress_meter $! "Deleteing backup no. $i"
+
+			deleted+=($i)
+		fi
+	done
+
+
+	if [[ -z $deleted ]]; then
+		echo
+		print_box "No backup was deleted!"
+		echo
+
+		zterm cursor restore
+		exit 1
+	fi
+
+	local gone=()
+	for i in $deleted; do
+		gone+=("${selected[$i]}")
+	done
+
+	zterm cursor position 1 1
+	zterm clear line; echo
+	zterm clear line; echo
+
+	zterm clear down
+
+		# --color "c c" \
+		# --align "r l" \
+	zmenu print \
+		--raw \
+		--no-bottom-line \
+		--title "${color_y}Following backups were deleted:${color_n}" \
+		--focus 0 \
+		--width 57  \
+		--align "r l l c r l" \
+		--color "b g g g b c c b" \
+		--spaces "1 2 ' [' '] ' ' [' 1 '] ' 2" \
+		$gone
+
+	zterm cursor down $(($#selected - $#deleted + 2))
+	zterm cursor restore
+	exit
 
 	# start backup deletion
 	#
@@ -414,8 +521,8 @@ exec_delete(){
 		echo
 		print_menu_items "---" $selected "---"
 
-		print_off ""
-		print_off -n "${color_yellow}Delete this backup [yes/NO]: ${color_none}[0K"
+		echo
+		print_off -n "${color_y}Delete this backup [yes/NO]: ${color_n}[0K"
 		read yesno
 
 		if [[ -n $yesno ]] && [[ yes =~ ^${(L)yesno}.*$ ]]; then
@@ -453,9 +560,9 @@ exec_delete(){
 			MENU_ITEMS_SELECTED[$index]=1
 		done
 
-		print_off ""
-		print_off "${color_yellow}Following backups were deleted:${color_none}"
-		print_off ""
+		echo
+		print_off "${color_y}Following backups were deleted:${color_n}"
+		echo
 
 		print_menu_items "---" $selected "---"
 	fi
@@ -487,13 +594,13 @@ exec_delete(){
 	)}")
 
 
-	print_off ""
-	print_off "${color_yellow}Disk usage on backup server:${color_none}"
+	echo
+	print_off "${color_y}Disk usage on backup server:${color_n}"
 	print_off "---------------------------------------------------------"
-	print_off "${color_yellow}Total:${color_none} $space[1]"
-	print_off "${color_yellow}Used: ${color_none} $space[2]"
-	print_off "${color_yellow}Free: ${color_none} $space[3]"
-	print_off ""
+	print_off "${color_y}Total:${color_n} $space[1]"
+	print_off "${color_y}Used: ${color_n} $space[2]"
+	print_off "${color_y}Free: ${color_n} $space[3]"
+	echo
 
 	unmount_smb_share
 
@@ -515,8 +622,8 @@ exec_mount(){
 		After usage unmount samba share manualy!
 	EOF
 
-	print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
-	print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
+	print_off "${color_y}Server: ${color_n}$SAMBA_SERVER"
+	print_off "${color_y}Share:  ${color_n}$SAMBA_SHARE"
 
 	SAMBA_MOUNT=""
 }
@@ -578,15 +685,16 @@ exec_tag(){
 }
 
 exec_test(){
-	SAMBA_IP=192.168.30.50
-	SAMBA_SERVER=maestral-backup
-	SAMBA_SHARE=backup
-	SAMBA_LOGIN=""
-	SAMBA_PASSWD=""
+	# SAMBA_IP=192.168.30.50
+	# SAMBA_SERVER=maestral-backup
+	# SAMBA_SHARE=backup
+	# SAMBA_LOGIN=""
+	# SAMBA_PASSWD=""
 
-	exec_backup
-	# exec_backup users
+	# exec_delete
+	# exec_backup # users
 	# exec_restore "$@"
+	exec_list
 }
 
 
@@ -621,17 +729,17 @@ confirm_restore(){
 	local b_type=$(cat $BLS_RESTORE/.bls-backup)
 	time=${${time/_/ }/x/:}
 
-	print_off ""
-	print_off "${color_yellow}You have selected following backup:${color_none}"
-	print_off "${color_yellow}--------------------------------------${color_none}"
-	print_off "${color_yellow}Server: ${color_none}${SAMBA_SERVER}"
-	print_off "${color_yellow}Share:  ${color_none}${SAMBA_SHARE}"
-	print_off ""
-	print_off "${color_yellow}System name: ${color_none}${host}"
-	print_off "${color_yellow}Backup time: ${color_none}${time}"
-	print_off "${color_yellow}Description: ${color_none}${desc}"
-	print_off "${color_yellow}Backup type: ${color_none}${b_type}"
-	print_off ""
+	echo
+	print_off "${color_y}You have selected following backup:${color_n}"
+	print_off "${color_y}--------------------------------------${color_n}"
+	print_off "${color_y}Server: ${color_n}${SAMBA_SERVER}"
+	print_off "${color_y}Share:  ${color_n}${SAMBA_SHARE}"
+	echo
+	print_off "${color_y}System name: ${color_n}${host}"
+	print_off "${color_y}Backup time: ${color_n}${time}"
+	print_off "${color_y}Description: ${color_n}${desc}"
+	print_off "${color_y}Backup type: ${color_n}${b_type}"
+	echo
 
 	local yesno
 
@@ -667,7 +775,7 @@ backup_system(){
 		echo
 		while true; do
 			echo -n "${move_up}"
-			echo -n "   ${color_yellow}Backup description:${color_none} [0K"
+			echo -n "   ${color_y}Backup description:${color_n} [0K"
 
 			read desc
 			[[ -n $desc ]] && break
@@ -701,7 +809,7 @@ backup_data(){
 		echo
 		while true; do
 			echo -n "${move_up}"
-			echo -n "   ${color_yellow}Backup description:${color_none} [0K"
+			echo -n "   ${color_y}Backup description:${color_n} [0K"
 
 			read desc
 			[[ -n $desc ]] && break
@@ -804,7 +912,7 @@ backup_system_files(){
 		cd /
 
 		local backup_size=$(echo $tar_size | awk '{printf "%5.1fG", ($1 / 1024)}')
-		print_off "${color_yellow}Backingup system:${color_none} $backup_size"
+		print_off "${color_y}Backingup system:${color_n} $backup_size"
 		echo
 
 		if [[ $BLS_TEST -eq 1 ]]; then
@@ -906,24 +1014,24 @@ backup_system_files(){
 		} > $backup_dir/.config
 
 		if [[ $BLS_TEST -eq 0 ]]; then
-			print_off ""
+			echo
 			print_box "System has been succesfully backuped!"
-			print_off ""
-			print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
-			print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
-			print_off "${color_yellow}Task:   ${color_none}$BLS_TASK"
-			print_off ""
+			echo
+			print_off "${color_y}Server: ${color_n}$SAMBA_SERVER"
+			print_off "${color_y}Share:  ${color_n}$SAMBA_SHARE"
+			print_off "${color_y}Task:   ${color_n}$BLS_TASK"
+			echo
 
 		else
 			SAMBA_MOUNT=""
 
-			print_off ""
+			echo
 			print_box "Test run has been succesfully done!"
 
 			{
 				cat <<-EOF | sed -e 's/^/   /'
-					${color_yellow}
-					${color_yellow}
+					${color_y}
+					${color_y}
 					This is 'dry run' of backup. In backup directory file was
 					created containing  the list of all files and directories
 					which would be backed up in  real run.  After 'bls' exits
@@ -931,26 +1039,26 @@ backup_system_files(){
 					'bls'  will  unmount  and  delete  directory  since it is
 					considered temporary.
 					
-					${color_yellow}Backup dir:${color_none} ${backup_dir}${color_yellow}
+					${color_y}Backup dir:${color_n} ${backup_dir}${color_y}
 
-					${color_yellow}Directory list:${color_none} backuped_dirs.txt
-					${color_yellow}Full file list:${color_none} backuped_files.txt
+					${color_y}Directory list:${color_n} backuped_dirs.txt
+					${color_y}Full file list:${color_n} backuped_files.txt
 
-					${color_yellow}Server: ${color_none}$SAMBA_SERVER
-					${color_yellow}Share:  ${color_none}$SAMBA_SHARE
-					${color_yellow}Task:   ${color_none}$BLS_TASK
-					${color_none}
+					${color_y}Server: ${color_n}$SAMBA_SERVER
+					${color_y}Share:  ${color_n}$SAMBA_SHARE
+					${color_y}Task:   ${color_n}$BLS_TASK
+					${color_n}
 				EOF
 
-				print_off "${color_yellow}Running config:${color_none}"
-				print_off ""
+				print_off "${color_y}Running config:${color_n}"
+				echo
 
 				cat $backup_dir/.config |
 				print_off --offset=5
 
-				print_off ""
-				print_off "${color_yellow}Backuped directories (tree level $BLS_TREE_LEVEL}:${color_none}"
-				print_off ""
+				echo
+				print_off "${color_y}Backuped directories (tree level $BLS_TREE_LEVEL}:${color_n}"
+				echo
 
 				cat $backup_dir/backuped_dirs.txt |
 				print_off --offset=5
@@ -1053,7 +1161,7 @@ backup_data_files(){
 		cd /
 
 		local backup_size=$(echo $tar_size | awk '{printf "%5.1fM", $1}')
-		print_off "${color_yellow}Backingup data:${color_none} $backup_size"
+		print_off "${color_y}Backingup data:${color_n} $backup_size"
 		echo
 
 		if [[ $BLS_TEST -eq 1 ]]; then
@@ -1191,24 +1299,24 @@ backup_data_files(){
 		} > $backup_dir/.config
 
 		if [[ $BLS_TEST -eq 0 ]]; then
-			print_off ""
+			echo
 			print_box "System has been succesfully backuped!"
-			print_off ""
-			print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
-			print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
-			print_off "${color_yellow}Task:   ${color_none}$BLS_TASK"
-			print_off ""
+			echo
+			print_off "${color_y}Server: ${color_n}$SAMBA_SERVER"
+			print_off "${color_y}Share:  ${color_n}$SAMBA_SHARE"
+			print_off "${color_y}Task:   ${color_n}$BLS_TASK"
+			echo
 
 		else
 			SAMBA_MOUNT=""
 
-			print_off ""
+			echo
 			print_box "Test run has been succesfully done!"
 
 			{
 				cat <<-EOF | sed -e 's/^/   /'
-					${color_yellow}
-					${color_yellow}
+					${color_y}
+					${color_y}
 					This is 'dry run' of backup. In backup directory file was
 					created containing  the list of all files and directories
 					which would be backed up in  real run.  After 'bls' exits
@@ -1216,35 +1324,35 @@ backup_data_files(){
 					'bls'  will  unmount  and  delete  directory  since it is
 					considered temporary.
 					
-					${color_yellow}Backup dir:${color_none} ${backup_dir}${color_yellow}
+					${color_y}Backup dir:${color_n} ${backup_dir}${color_y}
 
-					${color_yellow}Directory tree:${color_none} backuped_tree_dirs.txt
-					${color_yellow}FIle list tree:${color_none} backuped_tree_files.txt
-					${color_yellow}Full file list:${color_none} backuped_files.txt
+					${color_y}Directory tree:${color_n} backuped_tree_dirs.txt
+					${color_y}FIle list tree:${color_n} backuped_tree_files.txt
+					${color_y}Full file list:${color_n} backuped_files.txt
 
 
-					${color_yellow}Server: ${color_none}$SAMBA_SERVER
-					${color_yellow}Share:  ${color_none}$SAMBA_SHARE
-					${color_yellow}Task:   ${color_none}$BLS_TASK
-					${color_none}
+					${color_y}Server: ${color_n}$SAMBA_SERVER
+					${color_y}Share:  ${color_n}$SAMBA_SHARE
+					${color_y}Task:   ${color_n}$BLS_TASK
+					${color_n}
 				EOF
 
-				print_off "${color_yellow}Running config:${color_none}"
-				print_off ""
+				print_off "${color_y}Running config:${color_n}"
+				echo
 
 				cat $backup_dir/.config |
 				print_off --offset=5
 
-				print_off ""
-				print_off "${color_yellow}Backuped directories (tree level $BLS_TREE_LEVEL}:${color_none}"
-				# print_off ""
+				echo
+				print_off "${color_y}Backuped directories (tree level $BLS_TREE_LEVEL}:${color_n}"
+				# echo
 
 				cat $backup_dir/backuped_tree_dirs.txt |
 				print_off --offset=5
 
-				print_off ""
-				print_off "${color_yellow}Backuped files (tree level $BLS_TREE_LEVEL}:${color_none}"
-				# print_off ""
+				echo
+				print_off "${color_y}Backuped files (tree level $BLS_TREE_LEVEL}:${color_n}"
+				# echo
 
 				cat $backup_dir/backuped_tree_files.txt |
 				print_off --offset=5
@@ -1288,7 +1396,7 @@ restore_system_files(){
 
 	echo
 	local backup_size=$(echo $tar_size | awk '{printf "%5.1fG", ($1 / 1024)}')
-	print_off "${color_yellow}Restoring system:${color_none} $backup_size"
+	print_off "${color_y}Restoring system:${color_n} $backup_size"
 	echo
 
 	echo
@@ -1307,7 +1415,7 @@ restore_data_files(){
 
 	echo
 	local backup_size=$(echo $tar_size | awk '{printf "%5.1fM", $1}')
-	print_off "${color_yellow}Restoring files:${color_none} $backup_size"
+	print_off "${color_y}Restoring files:${color_n} $backup_size"
 	echo
 
 	echo
@@ -1368,7 +1476,7 @@ remove_failed_backups(){
 }
 
 list_backups(){
-	local header=("Host;Task;Type; Size;Date;Hour;Description")
+	local header=("Host;Task;Type;  Size;Time;;Description")
 
 	# exec 4>/dev/tty
 
@@ -1390,7 +1498,16 @@ list_backups(){
 		5 ""
 	)
 
-	print_menu_items $header $backups "------"
+	zmenu print \
+		--focus 0 \
+		--color 'b b b g b c c b' \
+		--align "r l l c r l" \
+		--spaces "1 2 ' [' '] ' ' [' 1 '] ' 2" \
+		--no-bottom-line \
+		--title "${color_y}List of backups on server $SAMBA_SERVER" \
+		--focus-colors "g n" \
+		--header $header \
+		$backups
 }
 
 get_list_of_backups(){
@@ -1425,7 +1542,9 @@ get_list_of_backups(){
 
 		parts=("${(@s:;:)backup}")
 
-		echo "$parts[1];$parts[2];[${(r:6:)btype}];${(l:5:)size};$parts[3];$parts[4];$desc"
+		[[ $btype = system ]] && btype="y:system"
+
+		echo "$parts[1];$parts[2];$btype;$size;$parts[3];$parts[4];$desc"
 	done
 }
 
@@ -1555,11 +1674,11 @@ exclusion_list_config(){
 		local item
 
 		for item in {1..$#tar_exclude}; do
-			print_off "${color_yellow}${(r:16:)val_prefix}${color_none} ${tar_exclude[$item]#*:}"
+			print_off "${color_y}${(r:16:)val_prefix}${color_n} ${tar_exclude[$item]#*:}"
 			val_prefix=""
 		done
 
-		print_off ""
+		echo
 	} >&2
 
 	exit 1
@@ -1655,7 +1774,7 @@ backup_list_config(){
 			'backup' key do define file to be backupped.
 		EOF
 
-		print_off ""
+		echo
 
 		exit 1
 	fi >&2
@@ -1682,11 +1801,11 @@ backup_list_config(){
 		local item
 
 		for item in {1..$#tar_backup}; do
-			print_off "${color_yellow}${(r:16:)val_prefix}${color_none} ${tar_backup[$item]#*:}"
+			print_off "${color_y}${(r:16:)val_prefix}${color_n} ${tar_backup[$item]#*:}"
 			val_prefix=""
 		done
 
-		print_off ""
+		echo
 	} >&2
 
 	exit 1
@@ -1699,30 +1818,39 @@ select_restore_dir(){
 
 	[[ $cwd = '/' ]] && return
 
-	# cat <<-EOF | print_box --align=left
 	cat <<-EOF | print_off
-		${color_yellow}
-		
+		${color_y}
 
 		You  can restore  files into original location or
 		current directory. Choose where you want files to
 		be restored:
-		${color_none}
+		${color_n}
 	EOF
 
-	print_off "${color_yellow}curr dir: ${color_none}$cwd"
-	print_off ""
+	print_off "${color_y}curr dir: ${color_n}$cwd"
+	echo
 
-	local location=$(
-		locations=("Restore to:" "Original location" "Current dir")
+	local location
 
-		select_menu_item \
-			"Where to restore files [${color_yellow}current dir${color_none}]: " \
-			"" \
-			$locations
-	)
+	zmenu select location \
+		--no-bottom-line \
+		--width 57  \
+		--color "b y" \
+		--align "r l" \
+		--title "${color_b}Where to restore data:" \
+		"Current directory" "Original location"
 
-	if [[ $location -eq 1 ]]; then
+	if [[ -z $location ]]; then
+		echo
+		print_box \
+			"By not selecting destination for restoration" \
+			"You have abandoned current restoration procedure"
+		echo
+
+		exit 1
+	fi
+
+	if [[ $location -eq 2 ]]; then
 		BLS_RESTORE_DATA='/'
 	else
 		BLS_RESTORE_DATA=$cwd
@@ -1802,7 +1930,7 @@ mount_backup_devices(){
 
 	local error_msg=${(M)mnt_report:#MNT_ERROR*}
 
-	print_off "${color_yellow}error msg:${color_none} ${error_msg#*:}"
+	print_off "${color_y}error msg:${color_n} ${error_msg#*:}"
 
 	BLS_SYSTEM_MOUNTS=("${${(@M)mnt_report:#OK:*}#OK:}")
 
@@ -1869,7 +1997,7 @@ mount_restore_devices(){
 
 	local error_msg=${(M)mnt_report:#MNT_ERROR*}
 
-	print_off "${color_yellow}error msg:${color_none} ${error_msg#*:}"
+	print_off "${color_y}error msg:${color_n} ${error_msg#*:}"
 
 	BLS_SYSTEM_MOUNTS=("${${(@M)mnt_report:#OK:*}#OK:}")
 
@@ -1910,7 +2038,7 @@ umount_devices(){
 	local pwidth=10
 
 	for error_msg in ${mnt_report}; do
-		print_off "${color_yellow}${(r:$pwidth:)prefix}${color_none} ${error_msg#*:}"
+		print_off "${color_y}${(r:$pwidth:)prefix}${color_n} ${error_msg#*:}"
 		prefix=""
 	done
 	echo
@@ -1971,8 +2099,8 @@ mount_chroot_resources(){
 		message and rerun 'bls' if necesary!
 	EOF
 
-	print_off "${color_yellow}Error: ${color_none}${error_msg#*:}"
-	print_off ""
+	print_off "${color_y}Error: ${color_n}${error_msg#*:}"
+	echo
 
 	umount_chroot_resources
 
@@ -2011,8 +2139,8 @@ umount_chroot_resources(){
 		  resources.
 	EOF
 
-	print_off "${color_yellow}Error: ${color_none}${error_msg#*:}"
-	print_off ""
+	print_off "${color_y}Error: ${color_n}${error_msg#*:}"
+	echo
 }
  
 get_backup_mounts(){
@@ -2095,7 +2223,7 @@ get_restore_mounts(){
 	for key in ${(ok)BLS_RESTORE_MOUNTS}; do
 
 		error_msg=$BLS_RESTORE_MOUNTS[$key]
-		print_off "${color_yellow}${(l:6:)prefix}${color_none} $error_msg"
+		print_off "${color_y}${(l:6:)prefix}${color_n} $error_msg"
 		prefix=""
 	done
 
@@ -2128,9 +2256,9 @@ get_root_mounts(){
 			continuing.
 		EOF
 
-		print_off "${color_yellow}Current root:${color_none}   $root_path"
-		print_off "${color_yellow}Possible entry:${color_none} UUID=$curr_root / $root_fs defaults 0 0"
-		print_off ""
+		print_off "${color_y}Current root:${color_n}   $root_path"
+		print_off "${color_y}Possible entry:${color_n} UUID=$curr_root / $root_fs defaults 0 0"
+		echo
 
 		exit 1
 	fi >&2
@@ -2148,9 +2276,9 @@ get_root_mounts(){
 			before continuing.
 		EOF
 
-		print_off "${color_yellow}Current root:${color_none}   $root_path"
-		print_off "${color_yellow}Possible entry:${color_none} UUID=$curr_root / $root_fs defaults 0 0"
-		print_off ""
+		print_off "${color_y}Current root:${color_n}   $root_path"
+		print_off "${color_y}Possible entry:${color_n} UUID=$curr_root / $root_fs defaults 0 0"
+		echo
 
 		exit 1
 	fi >&2
@@ -2167,9 +2295,9 @@ get_root_mounts(){
 			before continuing.
 		EOF
 
-		print_off "${color_yellow}Current root:${color_none}   $root_path"
-		print_off "${color_yellow}Possible entry:${color_none} UUID=$curr_root / $root_fs defaults 0 0"
-		print_off ""
+		print_off "${color_y}Current root:${color_n}   $root_path"
+		print_off "${color_y}Possible entry:${color_n} UUID=$curr_root / $root_fs defaults 0 0"
+		echo
 
 		exit 1
 	fi >&2
@@ -2196,8 +2324,8 @@ get_efi_mounts(){
 			Enter EFI entry in "fstab" before continuing.
 		EOF
 	
-		print_off "${color_yellow}Possible EFI entries for fstab:${color_none}"
-		print_off ""
+		print_off "${color_y}Possible EFI entries for fstab:${color_n}"
+		echo
 
 		for part in $system_efis; do
 			fs_type=$(lsblk -no FSTYPE $(findfs UUID="$part"))
@@ -2226,8 +2354,8 @@ get_efi_mounts(){
 			in fstab before continuing.
 		EOF
 
-		print_off "${color_yellow}Possible EFI entries for fstab:${color_none}"
-		print_off ""
+		print_off "${color_y}Possible EFI entries for fstab:${color_n}"
+		echo
 
 		for part in $system_efis; do
 			fs_type=$(lsblk -no FSTYPE $(findfs UUID="$part"))
@@ -2283,9 +2411,9 @@ get_efi_mounts(){
 		for miss_mount in $miss_mounted; do
 			parts=("${(s:;:)miss_mount}")
 
-			print_off "${color_yellow}Current mount:${color_none} ${(r:$m_width:)parts[2]}  UUID=$parts[1]"
-			print_off "${color_yellow}Fstab mount:${color_none}   ${(r:$m_width:)parts[3]}  $parts[4]"
-			print_off ""
+			print_off "${color_y}Current mount:${color_n} ${(r:$m_width:)parts[2]}  UUID=$parts[1]"
+			print_off "${color_y}Fstab mount:${color_n}   ${(r:$m_width:)parts[3]}  $parts[4]"
+			echo
 		done
 
 		exit 1
@@ -2321,9 +2449,9 @@ get_efi_mounts(){
 		for miss_mount in $miss_mounted; do
 			parts=("${(s:;:)miss_mount}")
 
-			print_off "${color_yellow}$parts[1]${color_none} ${(r:$m_width:)parts[2]}  $parts[3]"
+			print_off "${color_y}$parts[1]${color_n} ${(r:$m_width:)parts[2]}  $parts[3]"
 		done
-		print_off ""
+		echo
 
 		exit 1
 	fi >&2
@@ -2424,11 +2552,11 @@ get_config_mounts(){
 		local val_prefix="Invalid mount:"
 
 		for item in $config_mounts; do
-			print_off "${color_yellow}${(r:14:)val_prefix}${color_none} ${item#*:}"
+			print_off "${color_y}${(r:14:)val_prefix}${color_n} ${item#*:}"
 			val_prefix=""
 		done
 
-		print_off ""
+		echo
 
 		exit 1
 	fi >&2
@@ -2461,7 +2589,7 @@ check_efi_partitions(){
 		 YOU CAN'T USE 'bls' TOOL ON THIS HOST!
 	EOF
 
-	print_off "${color_yellow}Exiting ...${color_none}"
+	print_off "${color_y}Exiting ...${color_n}"
 
 	exit 1
 }
@@ -2644,7 +2772,7 @@ format_restore_partitions(){
 		Exiting ...
 	EOF
 
-	print_off "${color_yellow}error: ${color_none}$error_msg"
+	print_off "${color_y}error: ${color_n}$error_msg"
 
 	exit 1
 }
@@ -2708,7 +2836,7 @@ load_task(){
 		print_box "Failed to load configuration!"
 
 		echo "$config" |
-		sed -E -e "s/^(.*:)/${color_yellow}\1${color_none}/" |
+		sed -E -e "s/^(.*:)/${color_y}\1${color_n}/" |
 		print_off
 
 		exit 1
@@ -2758,9 +2886,9 @@ check_task(){
 	if [[ $#task_type -eq 0 ]] || [[ $#task_type -gt 1 ]]; then
 		print_box "Task config error: invalid task type!"
 
-		print_off "${color_yellow}Type used:${color_none} ${(j:, :)BLS_CONFIG_TYPE}"
-		print_off "${color_yellow}Valid task types are:${color_none} system or data!"
-		print_off ""
+		print_off "${color_y}Type used:${color_n} ${(j:, :)BLS_CONFIG_TYPE}"
+		print_off "${color_y}Valid task types are:${color_n} system or data!"
+		echo
 		exit 1
 	fi
 	
@@ -2782,9 +2910,9 @@ check_task(){
 	if [[ -n $invalid_keys ]]; then
 		print_box "Task config error: invalid key(s) used!"
 
-		print_off "${color_yellow}Invalid keys:${color_none} ${(oLj:, :)invalid_keys}"
-		print_off "${color_yellow}Valid keys:${color_none}   ${(oLj:, :)valid_keys}"
-		print_off ""
+		print_off "${color_y}Invalid keys:${color_n} ${(oLj:, :)invalid_keys}"
+		print_off "${color_y}Valid keys:${color_n}   ${(oLj:, :)valid_keys}"
+		echo
 		exit 1
 	fi
 
@@ -2817,9 +2945,9 @@ check_system_task(){
 		   'system' backup task!
 		EOF
 
-		print_off "${color_yellow}Invalid keys:${color_none} ${(oLj:, :)invalid_keys}"
-		print_off "${color_yellow}Valid keys:${color_none}   ${(oLj:, :)valid_keys}"
-		print_off ""
+		print_off "${color_y}Invalid keys:${color_n} ${(oLj:, :)invalid_keys}"
+		print_off "${color_y}Valid keys:${color_n}   ${(oLj:, :)valid_keys}"
+		echo
 		exit 1
 	fi
 
@@ -2838,8 +2966,8 @@ check_system_task(){
 	if [[ -n $empty_keys ]]; then
 		print_box "Task config error: task keys withot value!"
 
-		print_off "${color_yellow}Invalid keys:${color_none} ${(oLj:, :)empty_keys}"
-		print_off ""
+		print_off "${color_y}Invalid keys:${color_n} ${(oLj:, :)empty_keys}"
+		echo
 
 		exit 1
 	fi
@@ -2857,11 +2985,11 @@ check_system_task(){
 		EOF
 
 		for err_val in ${(oL)rel_paths}; do
-			print_off "${color_yellow}${(r:15:)val_prefix}${color_none} $err_val"
+			print_off "${color_y}${(r:15:)val_prefix}${color_n} $err_val"
 			val_prefix=""
 		done
 
-		print_off ""
+		echo
 		exit 1
 	fi
 
@@ -2886,11 +3014,11 @@ check_system_task(){
 		val_prefix="Invalid values:"
 
 		for err_val in ${(oL)wild_paths}; do
-			print_off "${color_yellow}${(r:15:)val_prefix}${color_none} $err_val"
+			print_off "${color_y}${(r:15:)val_prefix}${color_n} $err_val"
 			val_prefix=""
 		done
 
-		print_off ""
+		echo
 		exit 1
 	fi
 
@@ -2920,9 +3048,9 @@ check_data_task(){
 		   'data' backup task!
 		EOF
 
-		print_off "${color_yellow}Invalid keys:${color_none} ${(oLj:, :)invalid_keys}"
-		print_off "${color_yellow}Valid keys:${color_none}   ${(oLj:, :)valid_keys}"
-		print_off ""
+		print_off "${color_y}Invalid keys:${color_n} ${(oLj:, :)invalid_keys}"
+		print_off "${color_y}Valid keys:${color_n}   ${(oLj:, :)valid_keys}"
+		echo
 		exit 1
 	fi
 
@@ -2950,8 +3078,8 @@ check_data_task(){
 	if [[ -n $empty_keys ]]; then
 		print_box "Task config error: task keys withot value!"
 
-		print_off "${color_yellow}Empty key(s):${color_none} ${(oLj:, :)empty_keys}"
-		print_off ""
+		print_off "${color_y}Empty key(s):${color_n} ${(oLj:, :)empty_keys}"
+		echo
 
 		exit 1
 	fi
@@ -2969,11 +3097,11 @@ check_data_task(){
 		EOF
 
 		for err_val in ${(oL)rel_paths}; do
-			print_off "${color_yellow}${(r:15:)val_prefix}${color_none} $err_val"
+			print_off "${color_y}${(r:15:)val_prefix}${color_n} $err_val"
 			val_prefix=""
 		done
 
-		print_off ""
+		echo
 		exit 1
 	fi
 }
@@ -3240,7 +3368,7 @@ get_smb_version(){
 free_samba_mount(){
 
 	if ! unmount_smb_share; then
-		print_off ""
+		echo
 		cat <<-EOF | print_box --align=left
 			    Something is already mounted on backup mount,
 			    but we  failed to unmount directory! Manually
@@ -3263,20 +3391,20 @@ free_samba_mount(){
 
 			server=${server:-$mount_data[1]}
 
-			print_off ""
-			print_off "${color_yellow}Dir:       ${color_none}$SAMBA_MOUNT"
-			print_off "${color_yellow}Server:    ${color_none}$server"
-			print_off "${color_yellow}Share:     ${color_none}$mount_data[2]"
-			print_off ""
+			echo
+			print_off "${color_y}Dir:       ${color_n}$SAMBA_MOUNT"
+			print_off "${color_y}Server:    ${color_n}$server"
+			print_off "${color_y}Share:     ${color_n}$mount_data[2]"
+			echo
 		else
-			print_off ""
-			print_off "${color_yellow}Dir:       ${color_none}$SAMBA_MOUNT"
-			print_off "${color_yellow}Mounted:   ${color_none}$mount_what"
-			print_off ""
+			echo
+			print_off "${color_y}Dir:       ${color_n}$SAMBA_MOUNT"
+			print_off "${color_y}Mounted:   ${color_n}$mount_what"
+			echo
 		fi
 
-		print_off "${color_yellow}Error msg: ${color_none}${${ERROR_MESSAGE##*: }%.}"
-		print_off ""
+		print_off "${color_y}Error msg: ${color_n}${${ERROR_MESSAGE##*: }%.}"
+		echo
 
 		SAMBA_MOUNT=""
 		exit 1
@@ -3286,15 +3414,15 @@ free_samba_mount(){
 free_restore_mounts(){
 
 	if ! unmount_restore_dirs; then
-		print_off ""
+		echo
 		cat <<-EOF | print_box --align=left
 			    Something is already mounted on restore mounts,
 			    but we  failed to unmount directory! Manually
 			    unmount directory and rerun 'bls'.
 		EOF
 
-		print_off "${color_yellow}Error msg: ${color_none}${${ERROR_MESSAGE#*: }%.}"
-		print_off ""
+		print_off "${color_y}Error msg: ${color_n}${${ERROR_MESSAGE#*: }%.}"
+		echo
 
 		BLS_RESTORE_DIR=""
 		exit 1
@@ -3334,10 +3462,10 @@ mount_smb_share(){
 	# echo "---------------------"
 
 	if [[ -n $error_msg ]]; then
-		print_off ""
+		echo
 		print_box "Failed to mount samba share!"
-		print_off "${color_yellow}Error message:${color_none} ${error_msg#*(?): }"
-		print_off ""
+		print_off "${color_y}Error message:${color_n} ${error_msg#*(?): }"
+		echo
 
 		exit 1
 	fi >&2
@@ -3354,7 +3482,7 @@ tag_smb_share(){
 	[[ -f $BLS_TAG ]] && return
 
 	print_box "Failed to tag samba share as backup storage!"
-	print_off "${color_yellow}Error: ${color_none}$error_msg"
+	print_off "${color_y}Error: ${color_n}$error_msg"
 
 	exit 1
 }
@@ -3425,28 +3553,28 @@ select_task(){
 			Define task and run 'bls' again.
 		EOF
 
-		print_off "${color_yellow}Config file:${color_none} $BLS_CONFIG"
-		print_off ""
+		print_off "${color_y}Config file:${color_n} $BLS_CONFIG"
+		echo
 
 		exit 1
 	fi
 
-	print_off  "${color_yellow}"
+	print_off  "${color_y}"
 	print_off  "========================================================="
 	print_off  "You have not defined backup  task in command line. Select"
 	print_off  "backup task from below given list:"
 	print_off  "========================================================="
-	# print_off  "#########################################################"
-	print_off  "${color_none}"
+	print_off  "${color_n}"
 
-	local task=$(
-		tasks=("Task" "${(@)tasks#*;}")
+	local task
 
-		select_menu_item \
-			"Select backup task [${color_yellow}none${color_none}]: " \
-			"" \
-			$tasks
-	)
+	zmenu select task \
+		--no-bottom-line \
+		--width 57  \
+		--color "b y" \
+		--align "r l" \
+		--title "${color_b}Select task:" \
+		$tasks
 
 	if [[ -z $task ]]; then
 		print_box "No backup task has been selected. Exiting ..."
@@ -3463,37 +3591,36 @@ select_smb_server(){
 	local smb_servers=("${(@f)$(
 		collect_smb_servers &
 		progress_meter $! "Collecting samba servers on network"
-
 	)}")
 
 
 
 	if [[ -z $smb_servers ]]; then
-		print_off ""
+		echo
 		print_box "Failed to find any samba server on network!"
-		print_off ""
+		echo
 
 		exit 1
 	fi
 
+	local servers=(${(@)smb_servers#*;})
+	local smb_server
+
 	echo
-
-	local smb_server=$(
-		local servers=("Server" "${(@)smb_servers#*;}")
-
-		select_menu_item \
-			"Select server [${color_yellow}none${color_none}]: " \
-			"" \
-			$servers
-	)
-
+	zmenu select smb_server \
+		--no-bottom-line \
+		--width 57  \
+		--color "b y" \
+		--align "r l" \
+		--title "${color_b}Select server:" \
+		$servers
 
 	echo
 
 	if [[ -z $smb_server ]]; then
-		print_off ""
+		echo
 		print_box "You have not selected any server!"
-		print_off ""
+		echo
 
 		exit 1
 	fi
@@ -3508,18 +3635,19 @@ select_smb_share(){
 	local smb_login
 	local smb_password
 
-	print_off ${color_yellow}
-	print_off "Enter login and password:"
-	print_off "---------------------------------------"
-	print_off "Server:${color_none} $SAMBA_SERVER"
+	echo
+	echo
+	print_off "${color_b}Enter login and password:${color_n}"
+	print_off "---------------------------------------------------------"
+	print_off "${color_y}Server:${color_n} $SAMBA_SERVER"
 
 	echo -n "\n${move_up}"
-	print_off -n "${color_yellow}Login:${color_none} "
+	print_off -n "${color_y}Login:${color_n}  "
 	read smb_login
 
 	if [[ -n $smb_login ]]; then
 		echo -n "\n${move_up}"
-		print_off -n "${color_yellow}Passwd:${color_none} "
+		print_off -n "${color_y}Passwd:${color_n} "
 		read -s smb_password
 		echo
 	fi
@@ -3531,29 +3659,29 @@ select_smb_share(){
 	)}")
 
 	if [[ -z $smb_shares ]]; then
-		print_off ""
+		echo
 		print_box "Failed to find any share on server!"
-		print_off ""
+		echo
 
 		exit 1
 	fi
 
+	local shares=("${(@)smb_shares#*;*;}")
+	local smb_share
 
 	echo
-
-	smb_share=$(
-		local shares=("Share;Description" "${(@)smb_shares#*;*;}")
-
-		select_menu_item \
-			"Select share [${color_yellow}none${color_none}]: " \
-			"" \
-			$shares
-	)
+	zmenu select smb_share \
+		--no-bottom-line \
+		--width 57  \
+		--color "b y g" \
+		--align "r l l" \
+		--title "${color_b}Select share:" \
+		"${(@)shares}"
 
 	if [[ -z $smb_share ]]; then
-		print_off ""
+		echo
 		print_box "You have not selected any share!"
-		print_off ""
+		echo
 
 		exit 1
 	fi
@@ -3571,7 +3699,7 @@ select_smb_share(){
 }
 
 select_backup_restore(){
-	local backups=("Task;Date;Hour;Description")
+	local backups=()
 	local backup_type
 
 	if [[ $BLS_RUN_MODE = 'rescue' ]]; then
@@ -3637,18 +3765,22 @@ select_backup_restore(){
 			EOF
 		fi
 
-		print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
-		print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
+		print_off "${color_y}Server: ${color_n}$SAMBA_SERVER"
+		print_off "${color_y}Share:  ${color_n}$SAMBA_SHARE"
 
 		exit 1
 	fi
 
-	local restore=$(
-		select_menu_item \
-			"Select backup [${color_yellow}none${color_none}]: " \
-			"" \
-			$backups
-	)
+	local restore
+
+	echo
+	zmenu select restore\
+		--no-bottom-line \
+		--width 57  \
+		--color "b y g g b" \
+		--align "r l l l l" \
+		--title "${color_b}Select backup to restore:" \
+		$backups
 
 	if [[ -n $restore ]]; then
 		BLS_RESTORE=$backup_dirs[$restore]
@@ -3664,7 +3796,7 @@ select_backup_restore(){
 }
 
 select_backup_delete(){
-	local backups=("Task;Date;Hour;Description")
+	local backups=()
 	local backup_type
 
 	if [[ $BLS_RUN_MODE = 'rescue' ]]; then
@@ -3730,18 +3862,21 @@ select_backup_delete(){
 			EOF
 		fi
 
-		print_off "${color_yellow}Server: ${color_none}$SAMBA_SERVER"
-		print_off "${color_yellow}Share:  ${color_none}$SAMBA_SHARE"
+		print_off "${color_y}Server: ${color_n}$SAMBA_SERVER"
+		print_off "${color_y}Share:  ${color_n}$SAMBA_SHARE"
 
 		exit 1
 	fi
 
-	local restore=$(
-		select_menu_item \
-			"Select backup [${color_yellow}none${color_none}]: " \
-			"" \
-			$backups
-	)
+	local restore
+
+	zmenu select restore\
+		--no-bottom-line \
+		--width 57  \
+		--color "b j" \
+		--align "r j" \
+		--title "${color_b}Select backup to delete:" \
+		$backups
 
 	if [[ -n $restore ]]; then
 		BLS_RESTORE=$backup_dirs[$restore]
@@ -3776,12 +3911,15 @@ select_backup_host(){
 
 	[[ $1 = all ]] && all_hosts=("   " "backups from all systems")
 
-	local host=$(
-		select_menu_item \
-			"Select backup host [${color_yellow}none${color_none}]: " \
-			"" \
-			"Backedup host name" $hosts $all_hosts
-	)
+	local host
+
+	zmenu select restore\
+		--no-bottom-line \
+		--width 57  \
+		--color "b y" \
+		--align "r l" \
+		--title "${color_b}Select name of backuped host:" \
+		$hosts $all_hosts
 
 	if [[ -n $host ]]; then
 		if [[ $host -gt $#hosts ]]; then
@@ -3789,12 +3927,13 @@ select_backup_host(){
 		else
 			BLS_BACKUP_HOST=$hosts[$host]
 		fi
+
 		return
 	fi
 
-	print_off ""
+	echo
 	print_box "You have not selected any host!"
-	print_off ""
+	echo
 
 	exit 1
 }
@@ -3949,7 +4088,7 @@ print_off(){
 }
 
 print_box(){
-	local color='color_yellow'
+	local color='color_y'
 	local width=60
 	local align=center
 	local offset=3
@@ -3962,7 +4101,7 @@ print_box(){
 		-align:=ALIGN   \
 		-offset:=OFFSET
 
-	[[ -n $COLOR  ]] && color="color_${COLOR[2]#=}"
+	[[ -n $COLOR  ]] && color="color_${${COLOR[2]#=}[1]}"
 	[[ -n $WIDTH  ]] && width=${WIDTH[2]#=}
 	[[ -n $ALIGN  ]] && align=${ALIGN[2]#=}
 	[[ -n $OFFSET ]] && offset=${OFFSET[2]#=}
@@ -4007,7 +4146,7 @@ print_box(){
 
 	echo "${(l:$offset:)empty}#${(l:$((width - 2)):)empty}#"
 	echo ${(l:$offset:: :)empty}${(l:$width::#:)empty}
-	echo -n ${color_none}
+	echo -n ${color_n}
 	echo
 }
 
@@ -4167,10 +4306,10 @@ print_menu_items(){
 			if [[ $row -ne 1 ]] && [[ $col -eq 1 ]]; then
 				echo -n "${(l:$widths[$col]:)parts[col]}  "
 			else
-				[[ ${MENU_ITEMS_SELECTED[$((row-1))]} -eq 1 ]] && echo -n ${color_yellow}
-				[[ ${MENU_ITEMS_SELECTED[$((row-1))]} -eq 2 ]] && echo -n ${color_gray}
+				[[ ${MENU_ITEMS_SELECTED[$((row-1))]} -eq 1 ]] && echo -n ${color_y}
+				[[ ${MENU_ITEMS_SELECTED[$((row-1))]} -eq 2 ]] && echo -n ${color_d}
 				 
-				echo -n "${(r:$widths[$col]:)parts[col]}${color_none}  "
+				echo -n "${(r:$widths[$col]:)parts[col]}${color_n}  "
 			fi
 		done
 		echo
@@ -4190,10 +4329,6 @@ print_menu_items(){
 	done
 }
 
-
-###############################################
-# mirror script
-#
 
 
 ###############################################
@@ -4219,12 +4354,12 @@ progress_meter(){
 	local dots=$((text_width - 4 - ${#text}))
 	local void=""
 
-	tput civis >/dev/tty
+	zterm cursor off >/dev/tty
 
 	{
 		echo
 		echo -n "${move_up}"
-		echo -n "   ${color_yellow}${text}${color_none} ${(l:$dots::.:)void}"
+		echo -n "   ${color_y}${text}${color_n} ${(l:$dots::.:)void}"
 
 		local spinner_step=1
 		local step_time=0.08
@@ -4246,8 +4381,7 @@ progress_meter(){
 
 	} >&3
 
-	tput cnorm >/dev/tty
-
+	zterm cursor restore >/dev/tty
 }
 
 check_for_bls_instance(){
@@ -4263,9 +4397,9 @@ check_for_bls_instance(){
 
 	[[ -z $running ]] && echo $$ > $BLS_LOCK && return
 
-	print_off ""
+	echo
 	print_box "BLS is laready running" "Can't start another instance!"
-	print_off ""
+	echo
 
 	BLS_LOCK=""
 
@@ -4273,6 +4407,1610 @@ check_for_bls_instance(){
 }
 
 
+###############################################
+#  terminal functions
+#
+zterm(){
+	local cmd=$1; shift
+
+	case $cmd in
+		init)   __zterm_init   "$@";;
+		intr)   __zterm_intr   "$@";;
+		echo)   __zterm_echo   "$@";;
+		cursor) __zterm_cursor "$@";;
+		flush)  __zterm_flush  "$@";;
+		clear)  __zterm_clear  "$@";;
+		erase)  __zterm_clear  "$@";;
+		delete) __zterm_clear  "$@";;
+	esac
+}
+
+__zterm_init(){
+	local -A term_code=(
+		bsd-cursor-show  've'  linux-cursor-show  'cnorm'
+		bsd-cursor-hide  'vi'  linux-cursor-hide  'civis'
+	)
+
+	# check if we are on BSD or Linux system (stty
+	# uses different capability names on those os-es
+	#
+	local os=bsd
+
+	tput civis >/dev/null 2>&1 && os=linux
+
+	# get current state of INT signal shortcut 
+	# (usualy it is CTRL+C aka '^C'
+	#
+	local curr_intr=$(
+		stty -a |
+		grep 'intr' |
+		sed -E \
+			-e 's/.*intr *\= *([^;]+);.*/\1/' \
+			-e 's/[<>]//g'
+	)
+
+	__TERMINAL_CSHOW=$(tput $term_code[$os-cursor-show] 2>/dev/null)
+	__TERMINAL_CHIDE=$(tput $term_code[$os-cursor-hide] 2>/dev/null)
+	__TERMINAL_CLAST=$__TERMINAL_CSHOW
+
+	__TERMINAL_ECHO=(echo)
+	__TERMINAL_INTR=($curr_intr)
+	__TERMINAL_CURSOR=($__TERMINAL_CSHOW)
+}
+
+__zterm_intr(){
+
+	case $1 in
+		on) 
+			__TERMINAL_INTR+=("^C")
+
+			stty intr "" </dev/tty #>/dev/tty 2>/dev/null
+			;;
+
+		off)
+			__TERMINAL_INTR+=("undef")
+
+			stty intr undef </dev/tty #>/dev/tty 2>/dev/null
+			;;
+
+		restore)
+			[[ ${+__TERMINAL_INTR[-2]} -eq 0 ]] && return
+
+			stty intr "${${__TERMINAL_INTR[-2]}:-^C}" </dev/tty #>/dev/tty 2>/dev/null
+			__TERMINAL_INTR[-1]=()
+			;;
+	esac #>/dev/tty
+}
+
+__zterm_clear(){
+	case $1 in
+		line)  echo -n '[2K';;
+		left)  echo -n '[1K';;
+		right) echo -n '[K';;
+
+		screen|all|full)   echo -n '[2J';;
+		above|up|top)      echo -n '[1J';;
+		below|down|bottom) echo -n '[0J';;
+	esac #>/dev/tty
+}
+
+__zterm_echo(){
+
+	case $1 in
+		on) 
+			__TERMINAL_ECHO+=("echo")
+			stty echo #</dev/tty >/dev/tty 2>/dev/null
+			;;
+
+		off)
+			__TERMINAL_ECHO+=("-echo")
+			stty -echo #</dev/tty >/dev/tty 2>/dev/null
+			;;
+
+		restore)
+			[[ ${+__TERMINAL_ECHO[-2]} -eq 0 ]] && return
+
+			stty "${${__TERMINAL_ECHO[-2]}:-echo}" #</dev/tty >/dev/tty 2>/dev/null
+			__TERMINAL_ECHO[-1]=()
+			;;
+	esac #>/dev/tty
+}
+
+__zterm_cursor(){
+	local cmd=$1; shift
+
+	case $cmd in
+		pos|position)
+			__zterm_cursor_position "$@";;
+
+		move)  __zterm_cursor_move  "$@";;
+
+		up)     __zterm_cursor_move  up    "$@";;
+		down)   __zterm_cursor_move  down  "$@";;
+		left)   __zterm_cursor_move  left  "$@";;
+		right)  __zterm_cursor_move  rigth "$@";;
+		column) __zterm_cursor_move column "$@";;
+
+		on|show)
+			__TERMINAL_CURSOR+=($__TERMINAL_CSHOW)
+			echo -n "$__TERMINAL_CSHOW"
+			;;
+
+		off|hide)
+			__TERMINAL_CURSOR+=($__TERMINAL_CHIDE)
+			echo -n "$__TERMINAL_CHIDE"
+			;;
+
+		restore)
+			[[ ${+__TERMINAL_CURSOR[-2]} -eq 0 ]] && return
+
+			echo -n $__TERMINAL_CURSOR[-2]
+			__TERMINAL_CURSOR[-1]=()
+			;;
+	esac #>/dev/tty
+}
+
+__zterm_flush(){
+	local dump
+
+	while true; do read -t dump    </dev/tty || break; done
+	while true; do read -t -k dump </dev/tty || break; done
+}
+
+__zterm_cursor_position(){
+	[[ -n $1 ]] && __zterm_cursor_move position "$@" && return
+
+	local pos
+
+	zterm echo off
+
+	coproc {
+		local position dump
+
+		while true; do
+			read -d $'R' position </dev/tty
+			read -t 0.01 -k -d $'\e' dump </dev/tty || break
+		done
+
+		position="${position##*\[}"
+		echo "${(s:;:)position}"
+	}
+
+	echo -ne $'\e[6n' > /dev/tty
+
+	read pos <&p
+	echo "$pos"
+
+	zterm echo restore
+}
+
+__zterm_cursor_move(){
+	case $1 in
+		up) 	 	echo -en "\e[${2:-1}A";;
+		down) 	 	echo -en "\e[${2:-1}B";;
+		right) 	 	echo -en "\e[${2:-1}C";;
+		left) 	 	echo -en "\e[${2:-1}D";;
+		column)	 	echo -en "\e[${2:-1}G";;
+		position)	echo -en "\e[${2:-1};${3:-1}H";;
+	esac #>/dev/tty
+}
+
+
+
+###############################################
+#  menu functions
+#
+zmenu(){
+	local zm_cmd=$1; shift
+
+	case $zm_cmd in
+		select) __zmenu_select "$@";;
+		print)  __zmenu_print  "$@";;
+		init)   __zmenu_init   "$@";;
+	esac
+}
+
+__zmenu_init(){
+	__zmenu_zle_init
+}
+
+__zmenu_select(){
+	# this is wraper  to call real menu selection
+	# function. This way we reduce posibility that
+	# local variable (of which there are a lot), 
+	# overshadows variable in which result will 
+	# be stored (given as first argument to the
+	# command).
+	#
+	local __zmenu_selection_storage=$1; shift
+	local __zmenu_selection
+
+	# call real selection function
+	#
+	__zmenu_exec_select "$@"
+
+	# store result in variable given as first
+	# argument.
+	#
+	eval  "${__zmenu_selection_storage}=($__zmenu_selection)"
+}
+
+__zmenu_print(){
+	eval "$(__zmenu_variables)"
+
+	__zmenu_parse_options "$@"
+	__zmenu_prepare_items
+	__zmenu_prepare_separation
+	__zmenu_prepare_formating
+	__zmenu_calculate_widths
+	__zmenu_format_items
+	__zmenu_create_space
+	__zmenu_print_full
+
+	zterm cursor position $zm_pos_zle 1
+}
+
+
+
+#
+# parse options
+#
+__zmenu_variables(){
+	cat <<-EOF |
+		zm_raw             # showul cursor movement be printed (default YES)
+		zm_multy=0         # will we select multiple items
+		                   # (default NO)
+		zm_width=0         # required minimal width of menu
+		zm_widths          # width of each columns
+		zm_color           # column colors
+		zm_ccolor=1        # should individaul cells be differently
+		                   # coloured (default to YES)
+		zm_fcolor='d y'    # colors of item with focus (defaults
+		                        # to black fw and yellow bg)
+		zm_align           # column aligment
+		zm_offset=3        # offset of menu from left margine
+		zm_bar=";"         # column separator
+		zm_enum=1          # should items be numerated (default YES)
+
+		zm_header          # Header text (text for each column)
+		zm_prompt          # Below menu prompt text, it will be
+		                   # also used as prompt to enter item 
+		                   # number if that mode is enabled
+
+		zm_title           # Text above menu, if header is also
+		                   # present, one line space will be put
+		                   # between title and header, if there
+		                   # is no header, title will be just above
+		                   # menu. Title can be multiline, separated
+		                   # with newlines "\n"
+
+		zm_tline=1         # should line above items be shown
+		                   # (default YES)
+		                   #
+		zm_bline=1         # should line bellow items be shown
+		                   # (default YES)
+
+		zm_items=()        # original items will be stored here
+		zm_fitems=()       # formated items/lines will be stored here
+		zm_iitems=()       # items/lines prepared for inversion will
+		                   # be stored here
+
+		zm_spaces          # spaces between columns. By default between 
+		                   # each column there are 2 spaces, except after
+						   # enumeration column (if present) and selection
+						   # column (if present). We can give arbitrary
+						   # spaces between columns. Spaces need not be
+						   # space characers, but can be any string.
+
+		                   # positions of:
+		zm_pos_root        #  top left corner of menu
+		zm_pos_title       #  title text
+		zm_pos_head        #  header text
+		zm_pos_items       #  items start
+		zm_pos_prompt      #  prompt text
+		zm_pos_zle         #  where zle input will be done
+		           
+		zm_focus=1         # item with current focus
+		zm_focus_last      # last item with focus
+
+		-A zm_selected     # list of selected items
+	EOF
+
+	sed -E -e 's/[ 	]*#.*//' |
+	grep -Ev '^\s*$' |
+	sed -e 's/^/local /' -e 's/$/;/'
+}
+
+__zmenu_parse_options(){
+
+	###########################################################################
+	# menu options:
+	#
+	#   --raw           when printing menu do not include any
+	#                   cursor movement. It can be only used
+	#                   with "print" command.
+	#   --multy         should moultiple item be selected (NO)
+ 	#   --prompt        prompt shown below menu
+	#   --header        menu columns header
+	#   --title         text above menu (can be multi line)
+	#   --align         alignment of columns (see below)
+	#   --color         color of columns (see below)
+	#   --offset        offset from left margine
+	#   --separator     character used to separate
+	#                   column elements
+	#   --spaces        cpaces between columns (see below)
+	#
+	#   --focus         item with focus on start (defaults to 1)
+	#   --focus-colors  colors of item with focus, colors are
+	#                   given with same letters as color of 
+	#                   columns. First is given color of characters
+	#                   and than color of background
+	#
+	#   --width         total width of menu. If required width is more
+	#                   than width of wiedest menu item, last column will
+	#                   be extended.
+	#
+	#   Some options are by default ON, so "no"
+	#   switches are given:
+	#
+	#   --no-top-line       do not show line above items
+	#   --no-bottom-line    do not show line below items
+	#   --no-enumerate      do not enumerate items
+	#   --no-cell-color     do not apply individual cell coloring
+	#
+	# Spaces:
+	#    By default each column is separated with next with 2 spaces, except
+	#    after enumeration column (if present) and selection column (if
+	#    present) which are folowed by single space. We can give arbitrary
+	#    separation between columns. Separation need not be space characers,
+	#    instead they can be any sequence of characters.
+	#
+	#    Separatorion is given as string of numbers or sequence of characters
+	#    (if sequence of characters contains spaces use quotes). If number
+	#    is given, separtion will consist of <SPACE> character (as much as
+	#    given number), otherwise sequence of characters will be used.
+	#    
+	#    Note:
+	#      There should be one less space than there are columns. If less
+	#      spaces are given than necesary, last space will be reused till
+	#      last column. Extra spaces will be ignored.
+	#
+	#    Examples:
+	#
+	#       --spaces "1 2 1 3"
+	#       --spaces "1 xx -- ' x '"
+	#       --spaces '2 zz -- " z "'
+	#
+	# Aligment:
+	#   Aligment of columns is given as string consisting of letters or
+	#   words. For each column there should be one entry (letter/word).
+	#   Entries are separated with space. Dot "." indicates that aligment
+	#   of previous column will be reused.  If no aligment is given (e.g.
+	#   less aligments than there are columns), last aligment will be
+	#   repeated till end.
+	#
+	#      word  letter    description
+	#      -----------------------------------------
+	#      left     l      left
+	#      right    r      right
+	#               .      same as previous column
+	#      
+	#
+	# Colors:
+	#   Color of columns is given as string consisting of letters or 
+	#   words describing color name. For each column there is one entry
+	#   (letter or word). Entries are separated with space. Dot "." indicates
+	#   that color of previous column will be reused. If no collor is given
+	#   (e.g. less colors than columns), last color will be repeated till end.
+	#
+	#   Letter and names of colors are specialy chosen, since some colors
+	#   beggin with same letter:
+	#
+	#      black -> dark   (d)
+	#      blue  -> blue   (b)
+	#
+	#      green -> geen   (g)
+	#      gray  -> silber (s)
+	#
+	#
+	#      word   letter    color description
+	#      -----------------------------------------
+	#      dark      d      black
+	#      red       r      red
+	#      green     g      green
+	#      yellow    y      yelow
+	#      blue      b      blue
+	#      magenta   m      magenta
+	#      cyan      c      cyan
+	#      white     w      white
+	#      silver    s      gray
+	#      none      n      no color
+	#                .      same as previous column
+	#      
+	#  Note:
+	#    For item with focus, both foreground and bakground colors can be
+	#    given using same letter/names as given above.
+	#
+
+	local M_PROMPT M_HEADER M_TITLE SEPARATOR C_COLOR
+	local ALIGN COLOR OFFSET WIDTH FOCUS F_COLOR SPACES
+
+	zparseopts \
+		-E -D -A ARGS \
+		-focus:=FOCUS \
+		-width:=WIDTH \
+		-color:=COLOR \
+		-align:=ALIGN \
+		-title:=M_TITLE   \
+		-spaces:=SPACES   \
+		-offset:=OFFSET   \
+		-prompt:=M_PROMPT \
+		-header:=M_HEADER \
+		-separator:=SEPARATOR  \
+		-focus-colors:=F_COLOR \
+		\
+		-raw   \
+		-multy \
+		-no-enumerate \
+		-no-top-line  \
+		-no-bottom-line \
+		-no-cell-color
+
+	# set values given with options
+	#
+	[[ -n $FOCUS      ]] && zm_focus=$FOCUS[2]
+	[[ -n $WIDTH      ]] && zm_width=(${=WIDTH[2]})
+	[[ -n $COLOR      ]] && zm_color=(${=COLOR[2]})
+	[[ -n $ALIGN      ]] && zm_align=(${=ALIGN[2]})
+	[[ -n $SPACES     ]] && zm_spaces=$SPACES[2]
+	[[ -n $F_COLOR    ]] && zm_fcolor=(${=F_COLOR[2]})
+	[[ -n $M_TITLE    ]] && zm_title=$M_TITLE[2]
+	[[ -n $OFFSET     ]] && zm_offset=$OFFSET[2]
+	[[ -n $M_PROMPT   ]] && zm_prompt=$M_PROMPT[2]
+	[[ -n $M_HEADER   ]] && zm_header=$M_HEADER[2]
+	[[ -n $SEPARATOR  ]] && zm_bar=$SEPARATOR[2]
+
+	# set options given as arguments
+	#
+	[[ ${+ARGS[--raw]}   -eq 1 ]] && zm_raw='>/dev/null'
+	[[ ${+ARGS[--multy]} -eq 1 ]] && zm_multy=1
+
+	[[ ${+ARGS[--no-enumerate]}   -eq 1 ]] && zm_enum=0
+	[[ ${+ARGS[--no-top-line]}    -eq 1 ]] && zm_tline=0
+	[[ ${+ARGS[--no-bottom-line]} -eq 1 ]] && zm_bline=0
+	[[ ${+ARGS[--no-cell-color]}  -eq 1 ]] && zm_ccolor=0
+
+	[[ $zm_focus -gt $# ]] && zm_focus=$#
+
+	zm_items=("$@")
+	zm_focus_last=$zm_focus
+}
+
+
+#
+# prepare menu
+#
+__zmenu_prepare_items(){
+	# reset heder, prompt and title if
+	# consists only of spaces
+	#
+	regexp-replace zm_header '^[ 	]+$' ''
+	regexp-replace zm_title  '^[ 	]+$' ''
+	regexp-replace zm_prompt '^[ 	]+$' ''
+
+	zm_title=("${(@s:\n:)zm_title}")
+
+	##################################################
+	# if header is given add it to the items
+	#
+	[[ -n $zm_header ]] && zm_items=("$zm_header" "${(@)zm_items}")
+
+
+
+	##################################################
+	# change to default separator to 'cancel'
+	# character # (\x18)
+	#
+	local row
+
+	for row in {1..$#zm_items}; do
+		zm_items[$row]="${zm_items[$row]//${zm_bar}/\\x18}"
+	done
+	
+
+	##################################################
+	# add multy selection columnd if required
+	#
+	if [[ $zm_multy -eq 1 ]]; then
+		for row in {1..$#zm_items}; do
+			[[ -z $zm_items[$row] ]] && continue
+		    [[ $zm_items[$row] =~ '^[\.\*-=~ ]{3,}$' ]] && continue
+
+			if [[ $row -eq 1 ]] && [[ -n $zm_header ]]; then
+				zm_items[1]="\x18${zm_items[1]}"
+			else
+				counter=$((++counter))
+				zm_items[row]="[ ]\x18${zm_items[row]}"
+			fi
+		done
+	fi
+	
+	##################################################
+	# enumerate items if required
+	#
+	local counter=0
+
+	if [[ $zm_enum -eq 1 ]]; then
+		for row in {1..$#zm_items}; do
+			# skip empty rows and "lines"
+			#
+			[[ -z $zm_items[$row] ]] && continue
+		    [[ $zm_items[$row] =~ '^[\.\*-=~ ]{3,}$' ]] && continue
+
+			# Don't count header
+			#
+			if [[ $row -eq 1 ]] && [[ -n $zm_header ]]; then
+				zm_items[1]="No.\x18${zm_items[1]}"
+			else
+				counter=$((++counter))
+				zm_items[row]="$counter.\x18${zm_items[row]}"
+			fi
+		done
+	fi
+
+	##################################################
+	# some items could have less columns than other
+	# extend all items to same number of columns
+	#
+	local parts
+	local col_num=0
+
+	# get max number of columns
+	#
+	for row in {1..$#zm_items}; do
+		parts=("${(@s:\x18:)zm_items[$row]}")
+		[[ $col_num -lt $#parts ]] && col_num=$#parts
+	done
+
+	# extend "short" items
+	#
+	local diff
+	local void=""
+	local i
+
+	for row in {1..$#zm_items}; do
+		parts=("${(@s:\x18:)zm_items[$row]}")
+		# echo "row:$row $#parts"
+
+		[[ $col_num -eq $#parts ]] && continue
+
+		diff=$((col_num - $#parts))
+
+		zm_items[$row]="${zm_items[$row]}${${(l:$diff::;:)void}//;/\\x18}"
+	done
+}
+
+__zmenu_prepare_separation(){
+
+	# define position of enumeration and selection
+	# column (if present)
+	#
+	local enum_column=0
+	local select_column=0
+
+	[[ $zm_enum  -eq 1 ]] && enum_column=1
+	[[ $zm_multy -eq 1 ]] && select_column=$((enum_column + 1))
+
+
+	##################################################
+	# define columns separation (spaces or other 
+	# characters printed between columns).
+	#
+	local spaces
+	local void=""
+	local suffix=""
+	local row_parts=("${(@s:\x18:)zm_items[1]}")
+	local column_no=$#row_parts
+
+	eval "spaces=($zm_spaces)"
+	zm_spaces=()
+
+	for col in {1..$column_no}; do
+		# if space for given column is given in 
+		# command line, use it
+		#
+		if [[ ${+spaces[$col]} -eq 1 ]]; then
+			if [[ $spaces[$col] =~ '^[0-9]+$' ]]; then
+				suffix=("${(l:$spaces[$col]:)vodi}")
+			else
+				suffix=("$spaces[$col]")
+			fi
+
+			zm_spaces+=($suffix)
+
+			continue
+		fi
+
+		# if space for current column is not given use
+		# default value
+		#
+		if [[ $col -eq $enum_column ]]; then
+			suffix=" "
+		elif [[ $col -eq $select_column ]]; then
+			suffix=" "
+		elif [[ $col -lt $column_no ]]; then
+			suffix="  "
+		else
+			suffix=""
+		fi
+
+		zm_spaces+=($suffix)
+	done
+}
+
+__zmenu_prepare_formating(){
+
+	# define color and aligment if enumeration
+	# is requested
+	#
+	if [[ $zm_enum -eq 1 ]]; then
+		[[ -z $zm_align ]] && zm_align=(r l)
+		[[ -z $zm_color ]] && zm_color=(b g)
+
+		zm_align[1]=r
+	else
+		[[ -z $zm_align ]] && zm_align=(r l)
+		[[ -z $zm_color ]] && zm_color=(g)
+	fi
+
+	# echo ALING:${(qq)zm_align}
+
+	# define color and aligment if multy
+	# selection mode is on
+	#
+	if [[ $zm_multy -eq 1 ]]; then
+		if [[ $zm_enum -eq 1 ]]; then
+			zm_color=($zm_color[1] n $zm_color[2,-1])
+			zm_align=($zm_align[1] l $zm_align[2,-1])
+		else
+			zm_color=(n $zm_color)
+			zm_align=(l $zm_align)
+		fi
+	fi
+
+	# remove dots "." from color, check for validity
+	# and add missing formating (if less than column
+	# number).
+	#
+	local last_color=n
+	local valid_color
+	local i
+
+	valid_color=(dark red green yellow blue magenta cyan white silver none)
+	valid_color+=(d   r   g     y      b    m       c    w     s      n)
+
+	for i in {1..$#zm_color}; do
+		zm_color[$i]=${valid_color[(r)${zm_color[$i]}]}
+
+		[[ -z $zm_color[$i] ]] && zm_color[$i]=$last_color && continue
+
+		zm_color[$i]=${${zm_color[$i]}[1]}
+		last_color=$zm_color[$i]
+	done
+
+	# echo ALING:${(qq)zm_align}
+
+	# remove dots "." from align, check for validity
+	# and add missing formating (if less than column
+	# number).
+	#
+	local last_align=l
+	local valid_aligns=(left right center l r c)
+
+	for i in {1..$#zm_align}; do
+		zm_align[$i]=${valid_aligns[(r)${zm_align[$i]}]}
+
+		[[ -z $zm_align[$i] ]] && zm_align[$i]=$last_align && continue
+
+		zm_align[$i]=${${zm_align[$i]}[1]}
+		last_align=$zm_align[$i]
+	done
+
+	# echo ALING:${(qq)zm_align}
+
+	##################################################
+	# define aligment and color which are missing
+	# also check validity of color and aligment
+	#
+	local row_parts=("${(@s:\x18:)zm_items[1]}")
+
+	last_color=$zm_color[-1]
+	last_align=$zm_align[-1]
+
+	for i in {1..$#row_parts}; do
+		[[ -z $zm_color[$i] ]] && zm_color[$i]=$last_color
+		[[ -z $zm_align[$i] ]] && zm_align[$i]=$last_align
+	done
+
+	# check color of focus
+	#
+	if [[ $#zm_fcolor -lt 2 ]]; then
+		zm_fcolor=(d y)
+
+	elif [[ $zm_fcolor[1] = $zm_fcolor[2] ]]; then
+		zm_fcolor=(d y)
+
+	elif [[ -z ${valid_color[(r)${zm_fcolor[1]}]} ]] ||
+	     [[ -z ${valid_color[(r)${zm_fcolor[2]}]} ]]
+	then
+		zm_fcolor=(d y)
+	fi
+
+	zm_fcolor=(${${zm_fcolor[1]}[1]} ${${zm_fcolor[2]}[1]})
+}
+
+__zmenu_calculate_widths(){
+
+	##################################################
+	# calculate column widths
+	#
+	local parts
+	local col
+	local item
+	local width
+
+	zm_widths=()
+
+	for row in {1..$#zm_items}; do
+		parts=("${(@s:\x18:)zm_items[$row]}")
+
+		for col in {1..$#parts}; do
+			item=$parts[$col]
+			width=${#item#?:}
+
+			[[ $zm_widths[$col] -lt $width ]] && zm_widths[$col]=$width
+		done
+	done
+
+
+	##################################################
+	# calculate max width between title and prompt
+	#
+	local line
+	local max_width=0
+
+	for line in $zm_prompt $zm_title; do
+		regexp-replace line '(\x9B|\[)[0-?]*[ -\/]*[@-~]' ''
+		[[ $#line -gt $max_width ]] && max_width=$#line
+	done
+
+
+	##################################################
+	# sum all column widhts plus space between them
+	# to get total width
+	#
+	local total_width=0
+
+	for col in {1..$#zm_widths}; do
+		total_width=$((total_width + ${zm_widths[$col]}))
+	done
+	
+	# add spacess in between
+	#
+	total_width=$((total_width + ${#${(j::)zm_spaces}}))
+
+	# after enumeration and selection box there is only
+	# one space, so reduce length if those are included
+	# in menu
+	#
+	[[ $zm_enum -eq 1 ]] && total_width=$((total_width - 1))
+	[[ $zm_multy  -eq 1 ]] && total_width=$((total_width - 1))
+
+
+	##################################################
+	# if menu width is given, and bigger than
+	# width of titl/prompt use that as max width
+	#
+	[[ $zm_width -gt $max_width ]] && max_width=$zm_width
+
+	# if max_width is bigger than total_width, extend
+	# last collumn
+	#
+	if [[ $max_width -gt $total_width ]]; then
+		zm_widths[-1]=$(($zm_widths[-1] + max_width - total_width))
+		total_width=$max_width
+	fi
+
+
+	##################################################
+	# set global variables to calculated values
+	#
+	zm_width=$total_width
+	zm_fcolor=($zm_fcolor[1] $zm_fcolor[2])
+}
+
+__zmenu_format_items(){
+
+	##################################################
+	# colors and aligment values
+	#
+	local -A aa=(
+		'l' 1
+		'r' r
+		'.' l
+	)
+
+	local -A fg=(
+		'd' '[30m'
+		'r' '[31m'
+		'g' '[32m'
+		'y' '[33m'
+		'b' '[34m'
+		'm' '[35m'
+		'c' '[36m'
+		'w' '[37m'
+		's' '[90m'
+		'n' '[0m'
+		'.' '[0m'
+	)
+
+	local -A bg=(
+		'd' '[40m'
+		'r' '[41m'
+		'g' '[42m'
+		'y' '[43m'
+		'b' '[44m'
+		'm' '[45m'
+		'c' '[46m'
+		'w' '[47m'
+		'n' ''
+		's' '[100m'
+	)
+
+
+	##################################################
+	# local variables
+	#
+	local void=""
+	local org_line
+	local inv_line
+	local char
+	local row col
+
+	local curr_align
+	local curr_color
+	local curr_width
+	local cell_width
+
+	local pre_width
+	local post_width
+
+	local suffix
+	local cell cells
+	local org_cell inv_cell
+
+	# reset org_lines & inv_lines
+	#
+	zm_fitems=()
+	zm_iitems=()
+
+	##################################################
+	# Do actual formating. Create regular menu
+	# line and inverted one (which will be used
+	# as current/active line)
+	#
+	for row in {1..$#zm_items}; do
+		org_line=""
+		inv_line=""
+
+		###########################################
+		# If as item three or more characters are
+		# given, they will be treated specialy.
+		# Insted of menu item, line will be drawn.
+		#
+		# Alowed characters are:
+		#   *
+		#   .
+		#   -
+		#   =
+		#   ~
+		#   <SPACE>
+		#
+		#
+		if [[ -z $zm_items[$row] ]] ||
+		   [[ $zm_items[$row] =~ '^[\.\*-=~ ]{3,}$' ]]
+		then
+			char=${${zm_items[$row]}[1]}
+			org_line+="${void}${(l:$total_width::-:)void}"
+			org_line="${org_line//-/${char:- }}"
+
+			zm_fitems+=("$org_line")
+			zm_iitems+=("")
+			continue
+		fi
+
+		cells=("${(@s:\x18:)zm_items[$row]}")
+
+		for col in {1..$#cells}; do
+			cell=${cells[$col]}
+
+			suffix=$zm_spaces[$col]
+			curr_align=$zm_align[$col]
+			curr_width=$zm_widths[$col]
+			curr_color=$fg[$zm_color[$col]]
+
+			[[ $zm_ccolor -eq 1 ]] && [[ $cell =~ '^.:' ]] && curr_color=$fg[${cell:0:1}]
+
+			# if header use no color
+			#
+			[[ $row -eq 1 ]] && [[ -n $zm_header ]] && curr_color=$fg[n]
+
+
+			################################
+			# formated cell
+			#
+			if [[ $curr_align = r ]]; then
+				org_cell="${curr_color}${(l:$curr_width:)cell#?:}${fg[n]}${suffix}"
+				inv_cell="${(l:$curr_width:)cell#?:}${suffix}"
+			elif [[ $curr_align = l ]]; then
+				org_cell="${curr_color}${(r:$curr_width:)cell#?:}${fg[n]}${suffix}"
+				inv_cell="${(r:$curr_width:)cell#?:}${suffix}"
+			else
+				cell_width=${#${cell#?:}}
+				pre_width=$((cell_width + (curr_width - cell_width) / 2))
+				post_width=$((curr_width - pre_width))
+
+				# echo PRE: $pre_width POST: $post_width CELL: $cell_width COL:$curr_width
+
+				org_cell="${curr_color}${(l:$pre_width:)cell#?:}${fg[n]}${(l:$post_width:)void}${suffix}"
+				inv_cell="${(l:$pre_width:)cell#?:}${(l:$post_width:)void}${suffix}"
+			fi
+
+			################################
+			# add cell to line and inverted
+			# one
+			#
+			org_line+=$org_cell
+
+			# if header do nothing
+			#
+			[[ $row -eq 1 ]] && [[ -n $zm_header ]] && continue
+
+			# if it is row number do not invert
+			#
+			if [[ $col -eq 1 ]] && [[ $zm_enum -eq 1 ]]; then
+				inv_line+="$org_cell"
+
+			# add inverted cell to inverted line
+			#
+			else
+				inv_line+="\x1B${inv_cell}"
+			fi
+		done
+
+		inv_line="${inv_line/\\x1B/\\x18}"
+		inv_line="${inv_line//\\x1B/}"
+
+		zm_fitems+=("$org_line")
+		zm_iitems+=("$inv_line")
+	done
+
+	zm_fcolor="${fg[$zm_fcolor[1]]}${bg[$zm_fcolor[2]]}"
+
+	if [[ -n $zm_header ]]; then
+		zm_header="$zm_fitems[1]"
+
+		zm_fitems[1]=()
+		zm_iitems[1]=()
+	fi
+}
+
+
+#
+# menu execution
+#
+__zmenu_exec_select(){
+	eval "$(__zmenu_variables)"
+
+	zterm cursor off
+
+	__zmenu_parse_options "$@"
+
+	__zmenu_prepare_items
+	__zmenu_prepare_separation
+	__zmenu_prepare_formating
+	__zmenu_calculate_widths
+	__zmenu_format_items
+
+	__zmenu_create_space
+	__zmenu_print_full
+
+	local key
+
+	while true; do
+		__zmenu_get_key key
+
+		case $key in;
+			UP)     __zmenu_item_prev;;
+			DOWN)   __zmenu_item_next;;
+			PgUp)   __zmenu_item_first;;
+			PgDown) __zmenu_item_last;;
+			HOME)   __zmenu_item_first;;
+			END)    __zmenu_item_last;;
+
+			ALL)    __zmenu_item_select_all;;
+			NONE)   __zmenu_item_select_none;;
+			INVERT) __zmenu_item_select_invert;;
+
+			SPACE)  __zmenu_item_select_toggle 0;;
+			ENTER)  __zmenu_item_select_toggle 1 && break ;;
+
+			ACCEPT) break ;;
+			ESCAPE) break ;;
+			BREAK)  break ;;
+
+		esac
+	done
+
+	[[ $key = ESCAPE ]] || [[ $key = BREAK ]] && zm_selected=()
+
+	__zmenu_move_focus 0
+
+	zterm cursor position $zm_pos_zle 1
+	zterm flush
+	zterm cursor restore
+
+	__zmenu_selection=(${(@n)${(@k)zm_selected[(R)1]}})
+}
+
+__zmenu_get_key(){
+	local key_storage=$1
+	local key_map=menu_keymap
+	local zle_prompt=()
+	local menu_input
+	local old_keytimout=$KEYTIMEOUT
+
+
+	zterm cursor position $zm_pos_zle 1
+
+	setopt SINGLE_LINE_ZLE
+	export KEYTIMEOUT=5
+
+
+	vared \
+		-M $key_map $zle_prompt \
+		-i __zmenu_vared_init   \
+		-f __zmenu_vared_finish \
+		menu_input
+
+
+	KEYTIMEOUT=$old_keytimout
+
+	eval "${key_storage}=\"$__ZMENU_ZLE_CODE\""
+
+	# re enable CTRL+C signal sending
+	#
+	# zterm intr restore
+}
+
+__zmenu_item_select(){
+	local action=$1
+	local curr=$2
+
+	local i_mark
+	local i_status
+
+	if [[ $action = TOGGLE ]]; then
+		if [[ $zm_selected[$curr] -eq 1 ]]; then
+			i_mark=" "
+			i_status=0
+		else
+			i_mark="X"
+			i_status=1
+		fi
+	elif [[ $action = ON ]]; then
+		i_mark="X"
+		i_status=1
+	else
+		i_mark=" "
+		i_status=0
+	fi
+
+	zm_selected[$curr]=$i_status
+	zm_fitems[$curr]="${zm_fitems[$curr]/\[?\]/[${i_mark}]}"
+	zm_iitems[$curr]="${zm_iitems[$curr]/\[?\]/[${i_mark}]}"
+}
+
+__zmenu_item_select_toggle(){
+	# if we are not in multy selection mode
+	# and <SPACE> is pressed than ignore
+	#
+	[[ $zm_multy -eq 0 ]] && [[ $1 -eq 0 ]] && return
+
+	__zmenu_item_select TOGGLE $zm_focus
+
+	[[ $zm_multy -eq 0 ]] && return 0
+
+	__zmenu_print_item $zm_focus
+	__zmenu_item_next
+
+	return 1
+}
+
+__zmenu_item_select_all(){
+	# run this only if multy selection is active
+	#
+	[[ $zm_multy -eq 0 ]] && return
+
+	local curr=$(($#zm_fitems + 1))
+
+	while [[ $curr -gt 1 ]]; do
+
+		curr=$((--curr))
+
+		[[ -z $zm_iitems[$curr] ]] && continue
+
+		__zmenu_item_select ON $curr
+		__zmenu_print_item $curr
+	done
+}
+
+__zmenu_item_select_none(){
+	# run this only if multy selection is active
+	#
+	[[ $zm_multy -eq 0 ]] && return
+
+	local curr=$(($#zm_fitems + 1))
+
+	while [[ $curr -gt 1 ]]; do
+		curr=$((--curr))
+
+		[[ -z $zm_iitems[$curr] ]] && continue
+
+		__zmenu_item_select OFF $curr
+		__zmenu_print_item $curr
+	done
+}
+
+__zmenu_item_select_invert(){
+	# run this only if multy selection is active
+	#
+	[[ $zm_multy -eq 0 ]] && return
+
+	local curr=$(($#zm_fitems + 1))
+
+	while [[ $curr -gt 1 ]]; do
+		curr=$((--curr))
+
+		[[ -z $zm_iitems[$curr] ]] && continue
+
+		__zmenu_item_select TOGGLE $curr
+		__zmenu_print_item $curr
+	done
+}
+
+
+#
+# print menu
+#
+__zmenu_print_full(){
+	local void=""
+
+	zterm cursor position $zm_pos_root 1 $zm_raw
+
+	# escape codes:
+	#   [K   - erase line from cursor till end
+	#   [2K  - erase entire line
+	#   [0m  - reset any coloring
+	#
+
+	# empty LINE
+	#
+	echo "[2K"
+
+	# TITLE
+	#
+	if [[ -n $zm_title ]]; then
+		echo "${(@j:\n:)${(@)${(@)zm_title/#/${(l:$zm_offset:)void}}/%/[0m[K}}"
+		[[ -n $zm_header ]] && echo "[2K"
+	fi
+
+	# HEADER
+	#
+	if [[ -n $zm_header ]]; then
+		echo "${(l:$zm_offset:)void}${zm_header}[0m[K"
+	fi
+
+	# TOP LINE
+	#
+	if [[ $zm_tline -eq 1 ]]; then
+		echo "${(l:$zm_offset:)void}${(l:$zm_width::-:)void}[0m[K"
+	fi
+
+	# CONTENT
+	#
+	local i
+
+	for i in {1..$#zm_fitems}; do
+		__zmenu_print_item $i
+	done
+
+	# BOTTOM LINE
+	#
+	if [[ $zm_bline -eq 1 ]]; then
+		echo "${(l:$zm_offset:)void}${(l:$zm_width::-:)void}[0m[K"
+	fi
+
+	# PROMPT
+	#
+	if [[ -n $zm_prompt ]]; then
+		echo "[K\n${(l:$zm_offset:)void}${zm_prompt}[0m[K"
+	fi
+
+	echo "[2K"
+	echo "[2K"
+}
+
+__zmenu_print_item(){
+	local item_no=$1
+
+	zterm cursor position $((zm_pos_items + item_no - 1)) 1 $zm_raw
+
+	local item
+	if [[ $item_no -eq $zm_focus ]]; then
+		item="${zm_iitems[$item_no]/\\x18/${zm_fcolor}}[0m"
+	else
+		item="${zm_fitems[$item_no]}"
+	fi
+	echo "${(l:$zm_offset:)void}${item}[K"
+}
+
+__zmenu_move_focus(){
+	[[ -n $1 ]] && zm_focus=$1
+
+	[[ $zm_focus_last -eq $zm_focus ]] && return
+
+	[[ $zm_focus_last -ne 0 ]] && __zmenu_print_item $zm_focus_last
+	[[ $zm_focus      -ne 0 ]] && __zmenu_print_item $zm_focus
+
+	zm_focus_last=$zm_focus
+}
+
+__zmenu_create_space(){
+	local header_height=1
+	local prompt_height=1
+
+	[[ -z $zm_header ]] && header_height=0
+	[[ -z $zm_prompt ]] && prompt_height=0
+
+	local title_parts=("${(@)zm_title}")
+	local title_height=$#title_parts
+
+	[[ -z $title_parts  ]] && title_height=0
+
+
+	# if there is header and title add extra space
+	#
+	[[ $header_height -ne 0 ]] &&
+	[[ $title_height  -ne 0 ]] && title_height=$((++title_height))
+
+	# if there is prompt add extra space before prompt
+	# 
+	[[ $prompt_height -ne 0 ]] && prompt_height=$((++prompt_height))
+
+
+	# calculate total height of menu
+	#
+	local menu_height=$((
+		1 +
+		title_height +
+		header_height +
+		zm_tline +
+		$#zm_fitems +
+		zm_bline +
+		prompt_height +
+		2
+	))
+
+	# echo HEADER HIGHT: $header_height
+	# echo TITLE HEIGHT: $title_height
+	# echo TOP LINE H:   $zm_tline
+	# echo ITEMS NO:     $#zm_fitems
+	# echo BOT LINE H:   $zm_bline
+	# echo PROMPT HEI:   $prompt_height
+	# echo "-----------------------------"
+
+	# if we don't have enough space below
+	# current position, add extra lines
+	# so we can have enough space for menu
+	#
+	local lines=$(tput lines)
+	local position=($(zterm cursor position))
+
+	local missing=$((menu_height - (lines - $position[1])))
+
+	# echo LINES:    $lines
+	# echo POSITION: $position
+	# echo MENU:     $menu_height
+	# echo MISSING:  $missing
+
+	if [[ $missing -gt 0 ]]; then
+		local i
+
+		zterm cursor position $lines 1 $zm_raw
+		for i in {1..$missing}; do echo $zm_raw; done
+		position[1]=$(($position[1] - missing))
+	fi
+
+	# echo POSITION: $position
+	# read -s a
+
+	zm_pos_root=$position[1]
+	zm_pos_title=$((zm_pos_root + 1))
+	zm_pos_head=$((zm_pos_title + title_height))
+	zm_pos_items=$((zm_pos_head + header_height + zm_tline))
+	zm_pos_prompt=$((zm_pos_items + $#zm_fitems + zm_bline))
+	zm_pos_zle=$((zm_pos_prompt + prompt_height))
+
+	# echo POS ROOT:$zm_pos_root
+	# echo POS TITLE:$zm_pos_title
+	# echo POS HEAD:$zm_pos_head
+	# echo POS ITEMS:$zm_pos_items
+	# echo POS PROMPT:$zm_pos_prompt
+	# echo POS ZLE:$zm_pos_zle
+}
+
+
+#
+# navigate menu
+#
+__zmenu_item_prev(){
+	local curr=$zm_focus
+
+	while [[ $curr -gt 1 ]]; do
+		curr=$((--curr))
+		[[ -z $zm_iitems[$curr] ]] && continue
+
+		zm_focus=$curr
+		break
+	done
+
+	__zmenu_move_focus
+}
+
+__zmenu_item_next(){
+	local curr=$zm_focus
+
+	while [[ $curr -lt $#zm_fitems ]]; do
+		curr=$((++curr))
+		[[ -z $zm_iitems[$curr] ]] && continue
+
+		zm_focus=$curr
+		break
+	done
+
+	__zmenu_move_focus
+}
+
+__zmenu_item_first(){
+	local curr=0
+
+	while [[ $curr -lt $#zm_fitems ]]; do
+		curr=$((++curr))
+		[[ -z $zm_iitems[$curr] ]] && continue
+
+		zm_focus=$curr
+		break
+	done
+
+	__zmenu_move_focus
+}
+
+__zmenu_item_last(){
+	local curr=$(($#zm_fitems + 1))
+
+	while [[ $curr -gt 1 ]]; do
+		curr=$((--curr))
+		[[ -z $zm_iitems[$curr] ]] && continue
+
+		zm_focus=$curr
+		break
+	done
+
+	__zmenu_move_focus
+}
+
+
+#
+# zle initialization
+#
+__zmenu_zle_init(){
+
+	# list of key names as defined in terminfo for
+	# bsd and linux
+	#
+	local -A key_name=(
+		bsd-end        '@7'    linux-end       'kend'
+		bsd-home       'kh'    linux-home      'khome'
+		bsd-up         'ku'    linux-up        'kcuu1'
+		bsd-down       'kd'    linux-down      'kcud1'
+		bsd-left       'kl'    linux-left      'kcub1'
+		bsd-right      'kr'    linux-right     'kcuf1'
+                                               
+		bsd-page-down  'kN'    linux-page-down 'knp'
+		bsd-page-up    'kP'    linux-page-up   'kpp'
+	)
+
+	# detect if os is BSD since Linux and BSD use 
+	# different key names in terminfo
+	#
+	local os=bsd
+
+	tput civis >/dev/null 2>&1 && os=linux
+
+
+	# use tput te extract escape sequence for 
+	# keys we will use in zle
+	#
+	local key
+	local key_code
+	typeset -A seq
+
+	for key in ${(M)${(k)key_name}:#${os}-*}; do
+		key_code=${"$(tput ${key_name[$key]} | sed -n l)"[1,-2]}
+		seq[${key#*-}]=${key_code}
+	done
+
+	#
+	# create new EMPTY keymap
+	#
+	bindkey -N menu_keymap
+
+	# menu movement keys
+	#
+	bindkey -M menu_keymap "[A"            __zmenu_zle_up             # UP
+	bindkey -M menu_keymap "[B"            __zmenu_zle_down           # DOWN
+
+	bindkey -M menu_keymap "$seq[up]"        __zmenu_zle_up             # UP
+	bindkey -M menu_keymap "$seq[down]"      __zmenu_zle_down           # DOWN
+	bindkey -M menu_keymap "$seq[home]"      __zmenu_zle_home           # HOME
+	bindkey -M menu_keymap "$seq[end]"       __zmenu_zle_end            # END
+	bindkey -M menu_keymap "$seq[page-up]"   __zmenu_zle_page_up        # PgUp
+	bindkey -M menu_keymap "$seq[page-down]" __zmenu_zle_page_down      # PgDown
+
+	# <ENTER> and <SPACE> are selection keys
+	#
+	bindkey -M menu_keymap ""    __zmenu_zle_accept                   # CTRL+X
+	bindkey -M menu_keymap ""    __zmenu_zle_enter                    # <ENTER>
+	bindkey -M menu_keymap ""    __zmenu_zle_all                      # CTRL+A
+	bindkey -M menu_keymap ""    __zmenu_zle_none                     # CTRL+U
+	bindkey -M menu_keymap "^I"    __zmenu_zle_invert                   # CTRL+I
+	bindkey -M menu_keymap " "     __zmenu_zle_space                    # <SPACE>
+
+	# activate ESCAPE & CTRL+C
+	#
+	bindkey -M menu_keymap "\e"    __zmenu_zle_escape                   # <ESCAPE>
+	bindkey -M menu_keymap ""    __zmenu_zle_break                    # CTRL+C
+
+
+	###################################
+	# define functions as zle widgets
+	#
+	zle -N __zmenu_zle_up
+	zle -N __zmenu_zle_down
+	zle -N __zmenu_zle_home
+	zle -N __zmenu_zle_end
+	zle -N __zmenu_zle_page_up
+	zle -N __zmenu_zle_page_down
+
+	zle -N __zmenu_zle_space
+	zle -N __zmenu_zle_enter
+	zle -N __zmenu_zle_accept
+
+	zle -N __zmenu_zle_all
+	zle -N __zmenu_zle_none
+	zle -N __zmenu_zle_invert
+
+	zle -N __zmenu_zle_escape
+	zle -N __zmenu_zle_break
+
+	zle -N __zmenu_vared_init
+	zle -N __zmenu_vared_finish
+}
+
+
+#
+# zle widgets
+#
+__zmenu_zle_up(){
+	__ZMENU_ZLE_CODE='UP'
+	zle accept-line
+}
+
+__zmenu_zle_down(){
+	__ZMENU_ZLE_CODE='DOWN'
+	zle accept-line
+}
+
+__zmenu_zle_home(){
+	__ZMENU_ZLE_CODE='HOME'
+	zle accept-line
+}
+
+__zmenu_zle_end(){
+	__ZMENU_ZLE_CODE='END'
+	zle accept-line
+}
+
+__zmenu_zle_page_up(){
+	__ZMENU_ZLE_CODE='PgUp'
+	zle accept-line
+}
+
+__zmenu_zle_page_down(){
+	__ZMENU_ZLE_CODE='PgDown'
+	zle accept-line
+}
+
+
+__zmenu_zle_space(){
+	__ZMENU_ZLE_CODE='SPACE'
+	zle accept-line
+}
+
+__zmenu_zle_enter(){
+	__ZMENU_ZLE_CODE='ENTER'
+	zle accept-line
+}
+
+__zmenu_zle_accept(){
+	__ZMENU_ZLE_CODE='ACCEPT'
+	zle accept-line
+}
+
+
+__zmenu_zle_all(){
+	__ZMENU_ZLE_CODE='ALL'
+	zle accept-line
+}
+
+__zmenu_zle_none(){
+	__ZMENU_ZLE_CODE='NONE'
+	zle accept-line
+}
+
+__zmenu_zle_invert(){
+	__ZMENU_ZLE_CODE='INVERT'
+	zle accept-line
+}
+
+
+__zmenu_zle_escape(){
+	__ZMENU_ZLE_CODE='ESCAPE'
+	zle accept-line
+}
+
+__zmenu_zle_break(){
+	__ZMENU_ZLE_CODE='BREAK'
+	zle accept-line
+}
+
+
+__zmenu_vared_init(){
+	# stop terminal from sending INT
+	# signal when CTRL+C is pressed
+	#
+	zterm intr off
+
+	__ZMENU_ZLE_CODE=''
+}
+
+__zmenu_vared_finish(){
+	# reenable terminal to send INT
+	# signal when CTRL+C is pressed
+	#
+	zterm intr restore
+}
 
 ############################
 # parse arguments
@@ -4346,6 +6084,20 @@ parse_arguments(){
 
 parse_arguments $@
 
+
 [[ $BLS_COMMAND != help ]] && bls_init
+# echo "--------------------------"
+# zmenu select item \
+# 	--color " green mama . red b n" \
+# 	--align " l l" \
+# 	--header "Prvi;Drugi" \
+# 	"Jedan 1;Dva 1;Tri 1"\
+# 	"Jedan 1;Dva 1;Tri 1;Cetiri 1;Pet 1" \
+# 	"Jedan 1 xxxxxx;Dva 1 yyyyyyy;Tri 1 zzzzzz;Cetiri 1 wwwww;Pet 1 ooooooooo;Sest 1  hh;Sedam 1 p" \
+# 	"Jedan 1;Dva 1" \
+# 	"Jedan 1;Dva 1;Tri 1;Cetiri 1"\
+# 	"Jedan 1"
+# echo -n "OOOOOO"
+# read -s a
 
 exec_${BLS_COMMAND} ${BLS_ARGS}
