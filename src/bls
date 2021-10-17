@@ -692,9 +692,9 @@ exec_test(){
 	# SAMBA_PASSWD=""
 
 	# exec_delete
-	# exec_backup # users
+	exec_backup # users
 	# exec_restore "$@"
-	exec_list
+	# exec_list
 }
 
 
@@ -4024,7 +4024,12 @@ collect_server_shares(){
 
 collect_backup_tasks(){
 	cat $BLS_CONFIG |
-	awk '/^[ 	]*\[[ 	]*[^ 	]+[ 	]*\][ 	]*(#.*)?$/{print $2}' |
+		awk '
+			/^[ 	]*\[[ 	]*[^ 	]+[ 	]*\][ 	]*(#.*)?$/{
+			sub (/^[ 	]*\[[ 	]*/,"")
+			sub (/[ 	]*\].*/,"")
+			print $0
+		}' |
 	sort
 }
 
