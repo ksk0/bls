@@ -692,9 +692,9 @@ exec_test(){
 	# SAMBA_PASSWD=""
 
 	# exec_delete
-	exec_backup # users
+	# exec_backup # users
 	# exec_restore "$@"
-	# exec_list
+	exec_list
 }
 
 
@@ -1500,7 +1500,7 @@ list_backups(){
 
 	zmenu print \
 		--focus 0 \
-		--color 'b b b g b c c b' \
+		--color 'b c b g b c c b' \
 		--align "r l l c r l" \
 		--spaces "1 2 ' [' '] ' ' [' 1 '] ' 2" \
 		--no-bottom-line \
@@ -3913,7 +3913,7 @@ select_backup_host(){
 
 	local host
 
-	zmenu select restore\
+	zmenu select host \
 		--no-bottom-line \
 		--width 57  \
 		--color "b y" \
@@ -4950,7 +4950,7 @@ __zmenu_prepare_items(){
 			# skip empty rows and "lines"
 			#
 			[[ -z $zm_items[$row] ]] && continue
-		    [[ $zm_items[$row] =~ '^[\.\*-=~ ]{3,}$' ]] && continue
+		    [[ $zm_items[$row] =~ '^[\.\*-=~ \t]{3,}$' ]] && continue
 
 			# Don't count header
 			#
@@ -4984,6 +4984,11 @@ __zmenu_prepare_items(){
 	local i
 
 	for row in {1..$#zm_items}; do
+		# skip empty rows and "lines"
+		#
+		[[ -z $zm_items[$row] ]] && continue
+	    [[ $zm_items[$row] =~ '^[\.\*-=~ \t]{3,}$' ]] && continue
+
 		parts=("${(@s:\x18:)zm_items[$row]}")
 		# echo "row:$row $#parts"
 
@@ -5322,6 +5327,7 @@ __zmenu_format_items(){
 		#   <SPACE>
 		#
 		#
+
 		if [[ -z $zm_items[$row] ]] ||
 		   [[ $zm_items[$row] =~ '^[\.\*-=~ ]{3,}$' ]]
 		then
