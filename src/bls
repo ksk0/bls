@@ -472,6 +472,7 @@ exec_chroot(){
 	clear
 
 	chroot $BLS_RESTORE_DIR
+	echo
 }
 
 exec_tag(){
@@ -2039,8 +2040,10 @@ umount_chroot_resources(){
 					3>&1 >/dev/null 2>&3
 				)
 
-				[[ -n $error_msg ]] && echo $error_msg && break
+				[[ -n $error_msg ]] && echo $error_msg && exit 1
 			done
+
+			exit 0
 		) &
 
 		zprogress wait $! "Unmounting chroot resources"
@@ -2623,6 +2626,7 @@ mdadm_recreate(){
 	(
 		local array
 		for array in $arrays; do
+			[[ -L $array ]] && continue
 			mdadm --assemble --scan $array >/dev/null 2>&1
 		done
 	) &
@@ -2670,8 +2674,10 @@ format_restore_partitions(){
 						-e 'lowercase labels might not work properly'
 				)
 
-				[[ -n $error_msg ]] && echo $error_msg && break
+				[[ -n $error_msg ]] && echo $error_msg && exit 1
 			done
+
+			exit 0
 		) &
 
 		zprogress wait $! "Formating restore partitions"
@@ -3253,8 +3259,8 @@ check_config_file(){
 
 create_config_file(){
 	cat <<-EOF |
-		__BLS_CONFIG_FILE__
 	EOF
+		__BLS_CONFIG_FILE__
 	base64 -d > $BLS_CONFIG
 }
 
