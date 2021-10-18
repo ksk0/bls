@@ -62,7 +62,7 @@ TRAPEXIT(){
 		cd
 		ERROR_MESSAGE=$(
 			rmdir  $BLS_RESTORE_DIR 2>&1 &
-			progress_meter $! "Removing restore dir"
+			zprogress wait $! "Removing restore dir"
 		)
 
 		if [[ -n $ERROR_MESSAGE ]]; then
@@ -95,7 +95,7 @@ TRAPEXIT(){
 			cd
 			ERROR_MESSAGE=$(
 				rmdir  $SAMBA_MOUNT 2>&1 &
-				progress_meter $! "Removing samba mount dir"
+				zprogress wait $! "Removing samba mount dir"
 			)
 
 			if [[ -n $ERROR_MESSAGE ]]; then
@@ -118,7 +118,10 @@ TRAPEXIT(){
 }
 
 TRAPINT(){
+	local cpos=($(zterm cursor position))
 	echo
+	[[ $cpos[1] -ne 1 ]] && echo
+
 	return $((128 + $1))
 }
 
@@ -263,6 +266,8 @@ exec_restore(){
 	check_for_bls_instance
 	get_run_mode
 
+	clear
+
 	echo
 	free_samba_mount
 	free_restore_mounts
@@ -275,9 +280,6 @@ exec_restore(){
 
 	select_backup_host
 	select_backup_restore
-
-	# BLS_RESTORE="/mnt/bls-samba/maestral-test/2021-09-20_10x02"
-	# BLS_RESTORE="/mnt/bls-samba/maestral-test/2021-09-21_12x47"
 
 	# ######################################3
 	# check if  all files present
@@ -309,7 +311,7 @@ exec_list(){
 	local backups=("${(@f)$(
 		get_list_of_backups &
 
-		progress_meter $! "Creating list of backups"
+		zprogress wait $! "Creating list of backups"
 	)}")
 
 	if [[ -z $backups ]]; then
@@ -322,7 +324,6 @@ exec_list(){
 	local menu_prompt=""
 
 	menu_prompt+="[${color_g}ENTER: ${color_n}exit] "
-	menu_prompt+="[${color_g}ESCAPE: ${color_n}exit] "
 	menu_prompt+="[${color_g}CTRL+C: ${color_n}exit]"
 
 	clear
@@ -386,7 +387,6 @@ exec_delete(){
 
 		exit 1
 	fi
-
 
 	clear
 
@@ -496,10 +496,10 @@ exec_test(){
 	# SAMBA_LOGIN=""
 	# SAMBA_PASSWD=""
 
-	# exec_delete
-	# exec_backup # users
+	exec_delete "$@"
+	# exec_backup "$@"
 	# exec_restore "$@"
-	exec_list
+	# exec_list "$@"
 }
 
 
@@ -535,7 +535,8 @@ confirm_restore(){
 	time=${${time/_/ }/x/:}
 
 	echo
-	print_off "${color_y}You have selected following backup:${color_n}"
+	echo
+	print_off "${color_b}You have selected following backup:${color_n}"
 	print_off "${color_y}--------------------------------------${color_n}"
 	print_off "${color_y}Server: ${color_n}${SAMBA_SERVER}"
 	print_off "${color_y}Share:  ${color_n}${SAMBA_SHARE}"
@@ -550,7 +551,7 @@ confirm_restore(){
 
 	echo
 	while true; do
-		print_off -n "${move_up}Do you want to restore the $b_type [yes/NO]: [0K"
+		print_off -n "${move_up}${color_y}Do you want to restore the $b_type [yes/NO]:${color_n} [0K"
 		read yesno
 		[[ ${(L)yesno} = yes ]] && return
 		break
@@ -649,7 +650,7 @@ backup_system_files(){
 			awk '{sum = sum + $1} END {print sum}'
 		) &
 
-		progress_meter $! "Calculating backup size"
+		zprogress wait $! "Calculating backup size"
 
 		rm -f /tmp/bls-exclude
 	)
@@ -677,7 +678,7 @@ backup_system_files(){
 			done
 		) &
 
-		progress_meter $! "Time delay "
+		zprogress wait $! "Time delay "
 	fi
 		
 
@@ -756,7 +757,7 @@ backup_system_files(){
 			) &
 
 			echo
-			progress_meter $! "Creating directory list"
+			zprogress wait $! "Creating directory list"
 
 		else
 			echo
@@ -792,6 +793,7 @@ backup_system_files(){
 
 			echo "[ $BLS_TASK ]"
 			echo "   type: system"
+			echo "   desc: $BLS_CONFIG_DESC"
 			echo
 			 
 			local prefix="exclude:"
@@ -896,7 +898,7 @@ backup_data_files(){
 			awk '{sum = sum + $1} END {printf "%d", ((sum/1024) + 1) }'
 		) &
 
-		progress_meter $! "Calculating backup size"
+		zprogress wait $! "Calculating backup size"
 
 		# echo
 		# cat /tmp/bls-exclude
@@ -928,7 +930,7 @@ backup_data_files(){
 			done
 		) &
 
-		progress_meter $! "Time delay "
+		zprogress wait $! "Time delay "
 	fi
 		
 
@@ -1006,7 +1008,7 @@ backup_data_files(){
 			) &
 
 			echo
-			progress_meter $! "Creating directory list"
+			zprogress wait $! "Creating directory list"
 
 			(
 				local line
@@ -1028,7 +1030,7 @@ backup_data_files(){
 			) &
 
 			echo
-			progress_meter $! "Creating file list"
+			zprogress wait $! "Creating file list"
 
 		else
 			echo
@@ -1065,6 +1067,7 @@ backup_data_files(){
 
 			echo "[ $BLS_TASK ]"
 			echo "   type: data"
+			echo "   desc: $BLS_CONFIG_DESC"
 			echo
 			 
 			local prefix="backup:"
@@ -1105,7 +1108,7 @@ backup_data_files(){
 
 		if [[ $BLS_TEST -eq 0 ]]; then
 			echo
-			print_box "System has been succesfully backuped!"
+			print_box "Data files have been succesfully backuped!"
 			echo
 			print_off "${color_y}Server: ${color_n}$SAMBA_SERVER"
 			print_off "${color_y}Share:  ${color_n}$SAMBA_SHARE"
@@ -1261,7 +1264,7 @@ remove_failed_backups(){
 			done
 		) &
 
-		progress_meter $! "Checking for failed backups"
+		zprogress wait $! "Checking for failed backups"
 	)}")
 
 	CHECK_FOR_FAILES=0
@@ -1275,7 +1278,7 @@ remove_failed_backups(){
 		done
 	) &
 
-	progress_meter $! "Removing failed backups"
+	zprogress wait $! "Removing failed backups"
 
 	cd $cwd
 }
@@ -1283,9 +1286,14 @@ remove_failed_backups(){
 list_backups(){
 	local header=("Host;Task;Type;  Size;Time;;Description")
 
-	zprogress spinner "Creating list of backups"
-	local backups=("${(@f)$(get_list_of_backups)}")
-	zprogress end "DONE"
+	local __backups=("${(@f)$(
+		get_list_of_backups &
+		zprogress wait $! "Creating list of backups" 
+	)}")
+
+	# zprogress spinner "Creating list of backups"
+	# local backups=("${(@f)$(get_list_of_backups)}")
+	# zprogress end "DONE"
 
 	if [[ -z $backups ]]; then
 		print_box "There are no backups on selected server/share!"
@@ -1447,7 +1455,7 @@ exclusion_list_config(){
 			[[ -z $failed ]] && echo ${(j:\n:)exclude_list}
 		) &
 
-		progress_meter $! "Creating exclude list"
+		zprogress wait $! "Creating exclude list"
 	)}")
 
 	if [[ ! $tar_exclude =~ '^Failed with (item|root):' ]]; then
@@ -1562,7 +1570,7 @@ backup_list_config(){
 			[[ -z $failed ]] && echo ${(j:\n:)backup_list}
 		) &
 
-		progress_meter $! "Creating backup list"
+		zprogress wait $! "Creating backup list"
 	)}")
 
 	if [[ -z $tar_backup ]]; then
@@ -1618,9 +1626,8 @@ select_restore_dir(){
 	cat <<-EOF | print_off
 		${color_y}
 
-		You  can restore  files into original location or
-		current directory. Choose where you want files to
-		be restored:
+		You  can restore  files into original location or current
+		directory. Choose where you want files to be restored:
 		${color_n}
 	EOF
 
@@ -1631,11 +1638,12 @@ select_restore_dir(){
 
 	zmenu select location \
 		--no-bottom-line \
+		--focus 2 \
 		--width 57  \
 		--color "b y" \
 		--align "r l" \
 		--title "${color_b}Where to restore data:" \
-		"Current directory" "Original location"
+		"Original location" "Current directory"
 
 	if [[ -z $location ]]; then
 		echo
@@ -1647,7 +1655,7 @@ select_restore_dir(){
 		exit 1
 	fi
 
-	if [[ $location -eq 2 ]]; then
+	if [[ $location -eq 1 ]]; then
 		BLS_RESTORE_DATA='/'
 	else
 		BLS_RESTORE_DATA=$cwd
@@ -1659,6 +1667,8 @@ delete_backups(){
 	local __container=$1; shift
 	local __selected=("$@")
 	local __deleted=()
+	local __yesno
+	local __ret_val
 
 	zterm cursor off
 
@@ -1702,13 +1712,19 @@ delete_backups(){
 		if [[ -d $backup_dir ]]; then
 			echo -n "${move_up}[0K"
 
-			zprogress spinner "Deleting backup no. $i"
-			# rm -rf $backup_dir #&
-			sleep 2
-			# progress_meter $! "Deleteing backup no. $i"
-			zprogress end "DONE"
+			rm -r $backup_dir 2>/dev/null &
+			zprogress wait $! "Deleting backup no. $i"
 
-			__deleted+=($i)
+			__ret_val=$?
+
+			[[ $__ret_val -eq 0 ]] && __deleted+=($i) && continue
+
+			echo -n "${move_up}[0K"
+			print_off "${color_r}We FAILED to delete backup no. $i!"
+			echo
+			print_off -n "${color_y}Press <ENTER> to continue: "
+
+			read __yesno
 		fi
 	done
 
@@ -1767,7 +1783,7 @@ show_backup_storage_usage(){
 #
 clear_apt_cache(){
 	apt clean >/dev/null 2>&1 &
-	progress_meter $! "Clearing apt cache"
+	zprogress wait $! "Clearing apt cache"
 }
 
 clear_snap_cache(){
@@ -1780,7 +1796,7 @@ clear_snap_cache(){
 			snap remove "$snapname" --revision="$revision" >/dev/null 2>&1
 		done
 	) &
-	progress_meter $! "Clearing snap cache"
+	zprogress wait $! "Clearing snap cache"
 }
 
 
@@ -1819,7 +1835,7 @@ mount_backup_devices(){
 			done
 		) &
 
-		progress_meter $! "Mounting temporary mounts"
+		zprogress wait $! "Mounting temporary mounts"
 	)}")
 
 	[[ ! $mnt_report =~ 'MNT_ERROR:' ]] && return
@@ -1886,7 +1902,7 @@ mount_restore_devices(){
 			done
 		) &
 
-		progress_meter $! "Mounting restore mounts"
+		zprogress wait $! "Mounting restore mounts"
 	)}")
 
 	[[ ! $mnt_report =~ 'MNT_ERROR:' ]] && return
@@ -1922,7 +1938,7 @@ umount_devices(){
 			done
 		) &
 
-		progress_meter $! "Unmounting temporary mounts"
+		zprogress wait $! "Unmounting temporary mounts"
 	)}")
 
 	BLS_SYSTEM_MOUNTS=()
@@ -1986,7 +2002,7 @@ mount_chroot_resources(){
 			echo "${(j:;:)mounted}"
 		) &
 
-		progress_meter $! "Mounting chroot resources"
+		zprogress wait $! "Mounting chroot resources"
 	)}")
 
 
@@ -2027,7 +2043,7 @@ umount_chroot_resources(){
 			done
 		) &
 
-		progress_meter $! "Unmounting chroot resources"
+		zprogress wait $! "Unmounting chroot resources"
 	)}")
 
 	BLS_BINDED_MOUNTS=()
@@ -2054,7 +2070,7 @@ get_backup_mounts(){
 			echo ${(j:\n:)BLS_BACKUP_MOUNTS}
 		) 2>&1 &
 
-		progress_meter $! "Getting backup mount points"
+		zprogress wait $! "Getting backup mount points"
 	)}")
 
 	[[ ! $BLS_BACKUP_MOUNTS =~ '#####' ]] && return
@@ -2096,7 +2112,7 @@ get_restore_mounts(){
 		) &
 
 
-		progress_meter $! "Getting restore mount points"
+		zprogress wait $! "Getting restore mount points"
 	)}")
 
 
@@ -2591,7 +2607,7 @@ mdadm_scan(){
 		mv $MDADM_CONF.tmp $MDADM_CONF
 	) &
 
-	progress_meter $! "Scanning for existing mdadm arrays"
+	zprogress wait $! "Scanning for existing mdadm arrays"
 }
 
 mdadm_recreate(){
@@ -2611,7 +2627,7 @@ mdadm_recreate(){
 		done
 	) &
 
-	progress_meter $! "Reassembling existing mdadm arrays"
+	zprogress wait $! "Reassembling existing mdadm arrays"
 }
 
 format_restore_partitions(){
@@ -2658,7 +2674,7 @@ format_restore_partitions(){
 			done
 		) &
 
-		progress_meter $! "Formating restore partitions"
+		zprogress wait $! "Formating restore partitions"
 	)
 
 	# error_msg=$(echo $error_msg | grep -v '^mkfs.')
@@ -2700,7 +2716,7 @@ mirror_efi_parititons(){
 	local error_msg=$(
 		chroot $BLS_RESTORE_DIR bls-mirror-efi $org_efi 2>&1 &
 
-		progress_meter $! "Mirroring EFI partitions"
+		zprogress wait $! "Mirroring EFI partitions"
 	)
 
 	rm -f $BLS_RESTORE_DIR/bin/bls-mirror-efi
@@ -2730,7 +2746,7 @@ efi_mirror_script(){
 load_task(){
 	local config=$(
 		read_config 2>&1 &
-		progress_meter $! "Loading configuration"
+		zprogress wait $! "Loading configuration"
 	)
 
 	if [[ $config =~ '^Bls config error' ]]; then
@@ -2779,6 +2795,11 @@ check_task(){
 		exit 1
 	fi
 
+	if [[ ${+BLS_CONFIG_DESC} -eq 0 ]]; then
+		print_box "Task config error: task description not defined!"
+		exit 1
+	fi
+
 	# check for valid types
 	#
 	local valid_types=(data system)
@@ -2795,7 +2816,7 @@ check_task(){
 	
 	# check for valid config keys
 	#
-	local valid_keys=(TYPE BACKUP EXCLUDE MOUNTS)
+	local valid_keys=(TYPE DESC BACKUP EXCLUDE MOUNTS)
 	local task_keys=($(
 		typeset + |
 		awk '
@@ -2837,7 +2858,7 @@ check_system_task(){
 
 	# valid keys in 'system' backup
 	#
-	local valid_keys=(TYPE EXCLUDE MOUNTS)
+	local valid_keys=(TYPE DESC EXCLUDE MOUNTS)
 	local invalid_keys=(${task_keys:|valid_keys})
 
 	if [[ -n $invalid_keys ]]; then
@@ -2940,7 +2961,7 @@ check_data_task(){
 
 	# valid keys in 'data' backup
 	#
-	local valid_keys=(TYPE BACKUP EXCLUDE)
+	local valid_keys=(TYPE DESC BACKUP EXCLUDE)
 	local invalid_keys=(${task_keys:|valid_keys})
 
 	if [[ -n $invalid_keys ]]; then
@@ -3210,14 +3231,14 @@ check_config_file(){
 
 	if [[ ! -f $BLS_CONFIG ]]; then
 		create_config_file &
-		progress_meter $! "Creating default config file"
+		zprogress wait $! "Creating default config file"
 	fi
 
 	BLS_TASK="__BLS_TESTING__"
 
 	local config_file=$(
 		read_config 2>&1 &
-		progress_meter $! "Checking configuration"
+		zprogress wait $! "Checking configuration"
 	)
 
 	[[ ! $config_file =~ '^Bls config error' ]] && return
@@ -3347,15 +3368,22 @@ mount_smb_share(){
 
 	local error_msg=$(
 		(
-			mount -t cifs \
-				$smb_options \
-				//${SAMBA_IP}/${SAMBA_SHARE} \
-				$SAMBA_MOUNT 2>&1 |
+			local error_msg=$(
+				mount -t cifs \
+					$smb_options \
+					//${SAMBA_IP}/${SAMBA_SHARE} \
+					$SAMBA_MOUNT 2>&1 |
 
-			grep -Ev '^Refer to the mount.cif'
+				grep -Ev '^Refer to the mount.cif'
+			) 
+
+			echo $error_msg
+			
+			[[ -n $error_msg ]] && exit 1
+			exit 0
 		) &
 
-		progress_meter $! "Mounting samba share"
+		zprogress wait $! "Mounting samba share"
 	)
 
 	# echo "---------------------"
@@ -3377,7 +3405,7 @@ tag_smb_share(){
 
 	local error_msg=$(
 		touch $BLS_TAG 2>&1
-		progress_meter $! "Tagging share as backup storage"
+		zprogress wait $! "Tagging share as backup storage"
 	)
 
 	[[ -f $BLS_TAG ]] && return
@@ -3397,8 +3425,8 @@ unmount_smb_share(){
 	[[ -z $mount ]] && return
 
 	ERROR_MESSAGE=$(
-		umount -q $SAMBA_MOUNT 2>&1
-		progress_meter $! "Unmounting samba share"
+		umount -q $SAMBA_MOUNT 2>&1 &
+		zprogress wait $! "Unmounting samba share"
 	)
 
 
@@ -3430,7 +3458,7 @@ unmount_restore_dirs(){
 			done
 		) &
 
-		progress_meter $! "Unmounting restore mounts"
+		zprogress wait $! "Unmounting restore mounts"
 	)
 
 	[[ -n $ERROR_MESSAGE ]] && return 1
@@ -3446,7 +3474,7 @@ unmount_restore_dirs(){
 #
 select_task(){
 
-	local tasks=($(collect_backup_tasks))
+	local tasks=("${(@f)$(collect_backup_tasks)}")
 
 	if [[ -z $tasks ]]; then
 		cat <<-EOF | print_box
@@ -3460,20 +3488,21 @@ select_task(){
 		exit 1
 	fi
 
-	print_off  "${color_y}"
-	print_off  "========================================================="
-	print_off  "You have not defined backup  task in command line. Select"
-	print_off  "backup task from below given list:"
-	print_off  "========================================================="
-	print_off  "${color_n}"
+	# print_off  "${color_y}"
+	# print_off  "========================================================="
+	# print_off  "You have not defined backup  task in command line. Select"
+	# print_off  "backup task from below given list:"
+	# print_off  "========================================================="
+	# print_off  "${color_n}"
 
 	local task
 
 	zmenu select task \
 		--no-bottom-line \
 		--width 57  \
-		--color "b y" \
-		--align "r l" \
+		--color "b y g b" \
+		--align "r l c l" \
+		--spaces "1 ' [' '] '" \
 		--title "${color_b}Select task:" \
 		$tasks
 
@@ -3483,15 +3512,16 @@ select_task(){
 	fi
 
 	echo
-	BLS_TASK="$tasks[$task]"
+	BLS_TASK="${tasks[$task]%%;*}"
 }
 
 select_smb_server(){
 	[[ -n $SAMBA_IP ]] && return
 
-	zprogress spinner "Collecting samba servers on network"
-	local smb_servers=("${(@f)$(collect_smb_servers)}")
-	zprogress end DONE
+	local smb_servers=("${(@f)$(
+		collect_smb_servers &
+		zprogress wait $! "Collecting samba servers on network"
+	)}")
 
 
 
@@ -3555,7 +3585,7 @@ select_smb_share(){
 	echo
 	smb_shares=("${(@f)$(
 		collect_server_shares $SAMBA_IP $smb_login $smb_password &
-		progress_meter $! "Collecting server shares"
+		zprogress wait $! "Collecting server shares"
 	)}")
 
 	if [[ -z $smb_shares ]]; then
@@ -3638,7 +3668,7 @@ select_backup_restore(){
 
 			parts=("${(@s:;:)backup}")
 
-			echo "$parts[2];$parts[3];$parts[4];$desc"
+			echo "$parts[2];$backup_type;$parts[3];$parts[4];$desc"
 		done
 	)}")
 
@@ -3677,8 +3707,9 @@ select_backup_restore(){
 	zmenu select restore\
 		--no-bottom-line \
 		--width 57  \
-		--color "b y g g b" \
+		--color "b y g c c b" \
 		--align "r l l l l" \
+		--spaces "1 ' [' '] [' 2 '] '" \
 		--title "${color_b}Select backup to restore:" \
 		$backups
 
@@ -3704,9 +3735,10 @@ select_backup_delete(){
 	#
 	echo
 
-	zprogress spinner "Creating list of backups"
-	local __backups=("${(@f)$(get_list_of_backups)}")
-	zprogress end "DONE"
+	local __backups=("${(@f)$(
+		get_list_of_backups &
+		zprogress wait $! "Creating list of backups" 
+	)}")
 
 	if [[ -z $__backups ]]; then
 		print_box "There are no backups on selected share!"
@@ -3731,7 +3763,7 @@ select_backup_delete(){
 		--align "r l l c r l" \
 		--color "b b g g b c c b" \
 		--spaces "1 1 2 ' [' '] ' ' [' 1 '] ' 2" \
-		--prompt "$menu_prompt" \
+		--prompt "$__menu_prompt" \
 		--header "Host;Task;Type; Size;Time;;Description"\
 		--width 57  \
 		--title "${color_y}Select backups to delete:" \
@@ -3763,13 +3795,17 @@ select_backup_host(){
 	fi
 
 	local all_hosts
+	local focus=1
 
-	[[ $1 = all ]] && all_hosts=("   " "g:backups from all systems")
+	if [[ $1 = all ]]; then
+		all_hosts=("   " "g:backups from all systems")
+		focus=$(($#hosts + 2))
+	fi
 
 	local host
 
 	zmenu select host \
-		--focus $(($#hosts + 2)) \
+		--focus $focus \
 		--width 57  \
 		--color "b y" \
 		--align "r l" \
@@ -3880,11 +3916,46 @@ collect_server_shares(){
 collect_backup_tasks(){
 	cat $BLS_CONFIG |
 		awk '
+			# extract task bane
+			#
 			/^[ 	]*\[[ 	]*[^ 	]+[ 	]*\][ 	]*(#.*)?$/{
-			sub (/^[ 	]*\[[ 	]*/,"")
-			sub (/[ 	]*\].*/,"")
-			print $0
-		}' |
+				if (data[1] != ""){
+					printf "%s;%s;%s\n", data[1], data[2], data[3]
+
+					data[1] = ""
+					data[2] = ""
+					data[3] = ""
+				}
+
+				sub (/^[ 	]*\[[ 	]*/,"")
+				sub (/[ 	]*\].*/,"")
+
+				data[1] = $0
+			}
+
+			# extract task type
+			#
+			/^[ 	]*type:[ 	]*/{
+				sub (/^[ 	]*type:[ 	]*/,"")
+				sub (/#.*/,"")
+
+				data[2] = $0
+			}
+
+			# extract task description 
+			#
+			/^[ 	]*desc:[ 	]*/{
+				sub (/^[ 	]*desc:[ 	]*/,"")
+				sub (/#.*/,"")
+
+				data[3] = $0
+			}
+
+			END{
+				if (data[1] != "")
+					printf "%s;%s;%s\n", data[1], data[2], data[3]
+			}
+		' |
 	sort
 }
 
@@ -3901,7 +3972,7 @@ collect_backups(){
 			done 
 		) &
 
-		progress_meter $! "Collecting backups"
+		zprogress wait $! "Collecting backups"
 
 	)}")
 }
@@ -4274,19 +4345,20 @@ zprogress(){
 	local zp_cmd=$1; shift
 
 	case $zp_cmd; in
-		spinner) __zprogress_spinner "$@";;
-		end)     __zprogress_end     "$@";;
+		message) __zprogress_message  "$@";;
+		wait)    __zprogress_wait     "$@";;
+		end)     __zprogress_end      "$@";;
 	esac
 }
 
 __zprogress_end(){
 	local message=" $1"
 
-	kill -9 $__ZPROGRESS_RUNNER_PID
+	# kill -9 $__ZPROGRESS_RUNNER_PID
 	__ZPROGRESS_RUNNER_PID=""
 
 	echo "[${#message}D$message"
-	zterm cursor restore >/dev/tty
+	zterm cursor restore >&3
 }
 
 __zprogress_spinner(){
@@ -4297,17 +4369,127 @@ __zprogress_spinner(){
 	__ZPROGRESS_RUNNER_PID=$!
 }
 
-__zprogress_spinner_run(){
+__zprogress_message (){
+	local message=$1
 	local text=$1
 	local text_width=60
+
+	# remove ansi escape seqence from message (should
+	# be only possible coloring of text), and calculate
+	# text width.
+	#
+	regexp-replace text '(\x9B|\[)[0-?]*[ -\/]*[@-~]' ''
+
 	local dots=$((text_width - 4 - ${#text}))
 	local void=""
 
+	if [[ $text = $message ]]; then
+		message="${color_y}${message}"
+	fi
+
+	echo
+	echo -n "${move_up}"
+	echo -n "   ${message}${color_n} ${(l:$dots::.:)void}"
+}
+
+__zprogress_wait (){
+	local process_id=$1
+
+	zterm cursor off >&3
+
+	# start spinner process
+	#
+	__zprogress_spinner "$@"
+
+	# show message on success/fail
+	#
+	local message
+	local color
+	local ret_val
+
+	wait $process_id; ret_val=$?
+
+	if [[ $ret_val -eq 0 ]]; then
+		color=32
+		message=" DONE"
+	else
+		color=31
+		message=" FAILED"
+	fi
+
+	echo "[${#message}D[${color}m${message}" >&3
+	zterm cursor restore >&3
+
+	return $ret_val
+}
+
+__zprogress_spinner(){
+	local process_id=$1
+	local message=$2
+	local text=$2
+	local text_width=60
+
+	###################################################
+	# To check if process is still alive we can use
+	# two methods:
+	#
+	#    1. /proc filesystem exists. We will check
+	#       for presenc of directory /proc/PID
+	#       if directory is presend, process is also
+	#       present
+	#
+	#    2. If /proc is not present. We will check
+	#       for process pressenc by issuing command
+	#
+	#          kill -0 PID
+	#
+	#       this does nothing, but checks if process
+	#       is still running.
+	#
+	# We will prefere first method, but first we have
+	# to check if /proc file system exists, and decide
+	# which method to use. We will check if /proc is
+	# mounted file system of not issuing 'stat' command.
+	#
+	# Since stat command ond BSD does not use same
+	# arguments as on Linux, we have to distinguishe
+	# which stat command we are using.
+	#
+	# To check if we are using BSD or Linux stat command
+	# we will call "stat -c" which on BSD will fail with
+	# error.
+	#
+	local stat_opt="-c"
+
+	stat -c %d:%D / >/dev/null 2>&1 || stat_opt="-f"
+
+	# now check if device number is same for / and /proc
+	# if same, than on /proc is not mounted filesystem
+	#
+	local is_proc=1
+
+	local root_id=$(stat $stat_opt "%d" /)
+	local proc_id=$(stat $stat_opt "%d" /proc 2>/dev/null)
+
+	[[ $root_id -eq $proc_id ]] && is_proc=0
+	
+	# remove ansi escape seqence from message (should
+	# be only possible coloring of text), and calculate
+	# text width.
+	#
+	regexp-replace text '(\x9B|\[)[0-?]*[ -\/]*[@-~]' ''
+
+	local dots=$((text_width - 4 - ${#text}))
+	local void=""
+
+	if [[ $text = $message ]]; then
+		message="${color_y}${message}"
+	fi
 
 	{
 		echo
 		echo -n "${move_up}"
-		echo -n "   ${color_y}${text}${color_n} ${(l:$dots::.:)void}"
+		echo -n "   ${message}${color_n} ${(l:$dots::.:)void}"
 
 		local spinner_step=1
 		local step_time=0.08
@@ -4317,14 +4499,18 @@ __zprogress_spinner_run(){
 			echo -n '[2D' $spinner[$spinner_step]
 			sleep $step_time
 
-			# [[ ! -d /proc/$process_id ]] && break
+			if [[ $is_proc -eq 1 ]]; then
+				[[ ! -d /proc/$process_id ]] && break
+			else
+				kill -CONT $process_id >/dev/null 2>&1 || break
+			fi
 
 			spinner_step=$((++spinner_step))
 			[[ $spinner_step -gt 4 ]] && spinner_step=1
 		done
 
-
-	} # >&3
+		zterm cursos restore
+	} >&3
 }
 
 
@@ -4474,8 +4660,20 @@ __zterm_cursor(){
 __zterm_flush(){
 	local dump
 
-	while true; do read -t dump    </dev/tty || break; done
-	while true; do read -t -k dump </dev/tty || break; done
+	echo "Pass 1"
+	while true; do
+		read -t dump </dev/tty || break;
+		echo "D:$dump"
+	done
+
+	echo "Pass 2"
+	while true; do
+		read -t -k 1 dump </dev/tty || break;
+		echo "D:$dump"
+	done
+
+	echo "Pass 2 done"
+	sleep 5
 }
 
 __zterm_cursor_position(){
@@ -4612,8 +4810,8 @@ __zmenu_variables(){
 		                   # (default YES)
 
 		zm_items=()        # original items will be stored here
-		zm_fitems=()       # formated items/lines will be stored here
-		zm_iitems=()       # items/lines prepared for inversion will
+		zm_items_fmt=()    # formated items/lines will be stored here
+		zm_items_inv=()    # items/lines prepared for inversion will
 		                   # be stored here
 
 		zm_spaces          # spaces between columns. By default between 
@@ -4977,12 +5175,14 @@ __zmenu_prepare_separation(){
 			suffix=" "
 		elif [[ $col -lt $column_no ]]; then
 			suffix="  "
-		else
-			suffix=""
 		fi
 
 		zm_spaces+=($suffix)
 	done
+
+	# separation after last column does not exist
+	#
+	zm_spaces[-1]=""
 }
 
 __zmenu_prepare_formating(){
@@ -5137,13 +5337,6 @@ __zmenu_calculate_widths(){
 	#
 	total_width=$((total_width + ${#${(j::)zm_spaces}}))
 
-	# after enumeration and selection box there is only
-	# one space, so reduce length if those are included
-	# in menu
-	#
-	[[ $zm_enum -eq 1 ]] && total_width=$((total_width - 1))
-	[[ $zm_multy  -eq 1 ]] && total_width=$((total_width - 1))
-
 
 	##################################################
 	# if menu width is given, and bigger than
@@ -5158,7 +5351,6 @@ __zmenu_calculate_widths(){
 		zm_widths[-1]=$(($zm_widths[-1] + max_width - total_width))
 		total_width=$max_width
 	fi
-
 
 	##################################################
 	# set global variables to calculated values
@@ -5229,8 +5421,9 @@ __zmenu_format_items(){
 
 	# reset org_lines & inv_lines
 	#
-	zm_fitems=()
-	zm_iitems=()
+	zm_items_fmt=()
+	zm_items_inv=()
+	local row_parts
 
 	##################################################
 	# Do actual formating. Create regular menu
@@ -5240,6 +5433,8 @@ __zmenu_format_items(){
 	for row in {1..$#zm_items}; do
 		org_line=""
 		inv_line=""
+
+		row_parts=("${(@s:\x18:)zm_items[1]}")
 
 		###########################################
 		# If as item three or more characters are
@@ -5263,8 +5458,8 @@ __zmenu_format_items(){
 			org_line+="${void}${(l:$total_width::-:)void}"
 			org_line="${org_line//-/${char:- }}"
 
-			zm_fitems+=("$org_line")
-			zm_iitems+=("")
+			zm_items_fmt+=("$org_line")
+			zm_items_inv+=("")
 			continue
 		fi
 
@@ -5299,8 +5494,6 @@ __zmenu_format_items(){
 				pre_width=$((cell_width + (curr_width - cell_width) / 2))
 				post_width=$((curr_width - pre_width))
 
-				# echo PRE: $pre_width POST: $post_width CELL: $cell_width COL:$curr_width
-
 				org_cell="${curr_color}${(l:$pre_width:)cell#?:}${fg[n]}${(l:$post_width:)void}${suffix}"
 				inv_cell="${(l:$pre_width:)cell#?:}${(l:$post_width:)void}${suffix}"
 			fi
@@ -5330,17 +5523,17 @@ __zmenu_format_items(){
 		inv_line="${inv_line/\\x1B/\\x18}"
 		inv_line="${inv_line//\\x1B/}"
 
-		zm_fitems+=("$org_line")
-		zm_iitems+=("$inv_line")
+		zm_items_fmt+=("$org_line")
+		zm_items_inv+=("$inv_line")
 	done
 
 	zm_fcolor="${fg[$zm_fcolor[1]]}${bg[$zm_fcolor[2]]}"
 
 	if [[ -n $zm_header ]]; then
-		zm_header="$zm_fitems[1]"
+		zm_header="$zm_items_fmt[1]"
 
-		zm_fitems[1]=()
-		zm_iitems[1]=()
+		zm_items_fmt[1]=()
+		zm_items_inv[1]=()
 	fi
 }
 
@@ -5352,6 +5545,7 @@ __zmenu_exec_select(){
 	eval "$(__zmenu_variables)"
 
 	zterm cursor off
+	zterm echo off
 
 	__zmenu_parse_options "$@"
 
@@ -5396,7 +5590,7 @@ __zmenu_exec_select(){
 	__zmenu_move_focus 0
 
 	zterm cursor position $zm_pos_zle 1
-	zterm flush
+	zterm echo restore
 	zterm cursor restore
 
 	__zmenu_selection=(${(@n)${(@k)zm_selected[(R)1]}})
@@ -5409,11 +5603,10 @@ __zmenu_get_key(){
 	local menu_input
 	local old_keytimout=$KEYTIMEOUT
 
-
 	zterm cursor position $zm_pos_zle 1
 
 	setopt SINGLE_LINE_ZLE
-	export KEYTIMEOUT=5
+	export KEYTIMEOUT=100
 
 
 	vared \
@@ -5427,9 +5620,6 @@ __zmenu_get_key(){
 
 	eval "${key_storage}=\"$__ZMENU_ZLE_CODE\""
 
-	# re enable CTRL+C signal sending
-	#
-	# zterm intr restore
 }
 
 __zmenu_item_select(){
@@ -5456,8 +5646,8 @@ __zmenu_item_select(){
 	fi
 
 	zm_selected[$curr]=$i_status
-	zm_fitems[$curr]="${zm_fitems[$curr]/\[?\]/[${i_mark}]}"
-	zm_iitems[$curr]="${zm_iitems[$curr]/\[?\]/[${i_mark}]}"
+	zm_items_fmt[$curr]="${zm_items_fmt[$curr]/\[?\]/[${i_mark}]}"
+	zm_items_inv[$curr]="${zm_items_inv[$curr]/\[?\]/[${i_mark}]}"
 }
 
 __zmenu_item_select_toggle(){
@@ -5481,13 +5671,13 @@ __zmenu_item_select_all(){
 	#
 	[[ $zm_multy -eq 0 ]] && return
 
-	local curr=$(($#zm_fitems + 1))
+	local curr=$(($#zm_items_fmt + 1))
 
 	while [[ $curr -gt 1 ]]; do
 
 		curr=$((--curr))
 
-		[[ -z $zm_iitems[$curr] ]] && continue
+		[[ -z $zm_items_inv[$curr] ]] && continue
 
 		__zmenu_item_select ON $curr
 		__zmenu_print_item $curr
@@ -5499,12 +5689,12 @@ __zmenu_item_select_none(){
 	#
 	[[ $zm_multy -eq 0 ]] && return
 
-	local curr=$(($#zm_fitems + 1))
+	local curr=$(($#zm_items_fmt + 1))
 
 	while [[ $curr -gt 1 ]]; do
 		curr=$((--curr))
 
-		[[ -z $zm_iitems[$curr] ]] && continue
+		[[ -z $zm_items_inv[$curr] ]] && continue
 
 		__zmenu_item_select OFF $curr
 		__zmenu_print_item $curr
@@ -5516,12 +5706,12 @@ __zmenu_item_select_invert(){
 	#
 	[[ $zm_multy -eq 0 ]] && return
 
-	local curr=$(($#zm_fitems + 1))
+	local curr=$(($#zm_items_fmt + 1))
 
 	while [[ $curr -gt 1 ]]; do
 		curr=$((--curr))
 
-		[[ -z $zm_iitems[$curr] ]] && continue
+		[[ -z $zm_items_inv[$curr] ]] && continue
 
 		__zmenu_item_select TOGGLE $curr
 		__zmenu_print_item $curr
@@ -5570,7 +5760,7 @@ __zmenu_print_full(){
 	#
 	local i
 
-	for i in {1..$#zm_fitems}; do
+	for i in {1..$#zm_items_fmt}; do
 		__zmenu_print_item $i
 	done
 
@@ -5597,9 +5787,9 @@ __zmenu_print_item(){
 
 	local item
 	if [[ $item_no -eq $zm_focus ]]; then
-		item="${zm_iitems[$item_no]/\\x18/${zm_fcolor}}[0m"
+		item="${zm_items_inv[$item_no]/\\x18/${zm_fcolor}}[0m"
 	else
-		item="${zm_fitems[$item_no]}"
+		item="${zm_items_fmt[$item_no]}"
 	fi
 	echo "${(l:$zm_offset:)void}${item}[K"
 }
@@ -5645,7 +5835,7 @@ __zmenu_create_space(){
 		title_height +
 		header_height +
 		zm_tline +
-		$#zm_fitems +
+		$#zm_items_fmt +
 		zm_bline +
 		prompt_height +
 		2
@@ -5654,7 +5844,7 @@ __zmenu_create_space(){
 	# echo HEADER HIGHT: $header_height
 	# echo TITLE HEIGHT: $title_height
 	# echo TOP LINE H:   $zm_tline
-	# echo ITEMS NO:     $#zm_fitems
+	# echo ITEMS NO:     $#zm_items_fmt
 	# echo BOT LINE H:   $zm_bline
 	# echo PROMPT HEI:   $prompt_height
 	# echo "-----------------------------"
@@ -5688,7 +5878,7 @@ __zmenu_create_space(){
 	zm_pos_title=$((zm_pos_root + 1))
 	zm_pos_head=$((zm_pos_title + title_height))
 	zm_pos_items=$((zm_pos_head + header_height + zm_tline))
-	zm_pos_prompt=$((zm_pos_items + $#zm_fitems + zm_bline))
+	zm_pos_prompt=$((zm_pos_items + $#zm_items_fmt + zm_bline))
 	zm_pos_zle=$((zm_pos_prompt + prompt_height))
 
 	# echo POS ROOT:$zm_pos_root
@@ -5708,7 +5898,7 @@ __zmenu_item_prev(){
 
 	while [[ $curr -gt 1 ]]; do
 		curr=$((--curr))
-		[[ -z $zm_iitems[$curr] ]] && continue
+		[[ -z $zm_items_inv[$curr] ]] && continue
 
 		zm_focus=$curr
 		break
@@ -5720,9 +5910,9 @@ __zmenu_item_prev(){
 __zmenu_item_next(){
 	local curr=$zm_focus
 
-	while [[ $curr -lt $#zm_fitems ]]; do
+	while [[ $curr -lt $#zm_items_fmt ]]; do
 		curr=$((++curr))
-		[[ -z $zm_iitems[$curr] ]] && continue
+		[[ -z $zm_items_inv[$curr] ]] && continue
 
 		zm_focus=$curr
 		break
@@ -5734,9 +5924,9 @@ __zmenu_item_next(){
 __zmenu_item_first(){
 	local curr=0
 
-	while [[ $curr -lt $#zm_fitems ]]; do
+	while [[ $curr -lt $#zm_items_fmt ]]; do
 		curr=$((++curr))
-		[[ -z $zm_iitems[$curr] ]] && continue
+		[[ -z $zm_items_inv[$curr] ]] && continue
 
 		zm_focus=$curr
 		break
@@ -5746,11 +5936,11 @@ __zmenu_item_first(){
 }
 
 __zmenu_item_last(){
-	local curr=$(($#zm_fitems + 1))
+	local curr=$(($#zm_items_fmt + 1))
 
 	while [[ $curr -gt 1 ]]; do
 		curr=$((--curr))
-		[[ -z $zm_iitems[$curr] ]] && continue
+		[[ -z $zm_items_inv[$curr] ]] && continue
 
 		zm_focus=$curr
 		break
@@ -5828,7 +6018,7 @@ __zmenu_zle_init(){
 
 	# activate ESCAPE & CTRL+C
 	#
-	bindkey -M menu_keymap "\e"    __zmenu_zle_escape                   # <ESCAPE>
+	# bindkey -M menu_keymap "\e"    __zmenu_zle_escape                   # <ESCAPE>
 	bindkey -M menu_keymap ""    __zmenu_zle_break                    # CTRL+C
 
 
@@ -6022,6 +6212,19 @@ parse_arguments(){
 }
 
 parse_arguments $@
+bls_init
+
+# clear
+# echo
+# echo
+# echo $$
+# echo
+# echo
+# sleep 60 &
+# zprogress wait $! "Waiting for sleep to end"
+# 
+# exit
+
 
 
 [[ $BLS_COMMAND != help ]] && bls_init
