@@ -353,9 +353,8 @@ exec_delete(){
 	run_as_root
 	check_for_bls_instance
 
-	clear
+	clear; echo
 
-	echo
 	free_samba_mount
 	select_smb_server
 	select_smb_share
@@ -388,9 +387,8 @@ exec_delete(){
 		exit 1
 	fi
 
-	clear
+	clear; echo
 
-	echo
 	echo
 	zmenu print \
 		--no-bottom-line \
@@ -3679,7 +3677,7 @@ select_backup_restore(){
 	)}")
 
 
-	if [[ -z $backups[2] ]]; then
+	if [[ -z $backups ]]; then
 		if [[ $backup_type = system ]]; then
 			cat <<-EOF | print_box --align=left
 				  You are runing Linux from rescue CD.  You can only
@@ -4401,6 +4399,7 @@ __zprogress_message (){
 __zprogress_wait (){
 	local process_id=$1
 
+	zterm echo off >&3
 	zterm cursor off >&3
 
 	# start spinner process
@@ -4418,6 +4417,9 @@ __zprogress_wait (){
 	if [[ $ret_val -eq 0 ]]; then
 		color=32
 		message=" DONE"
+	elif [[ $ret_val -eq 127 ]]; then
+		color=32
+		message=" DONE"
 	else
 		color=31
 		message=" FAILED"
@@ -4425,6 +4427,7 @@ __zprogress_wait (){
 
 	echo "[${#message}D[${color}m${message}" >&3
 	zterm cursor restore >&3
+	zterm echo restore >&3
 
 	return $ret_val
 }
@@ -4736,7 +4739,10 @@ zmenu(){
 }
 
 __zmenu_init(){
-	__zmenu_zle_init
+	echo "Calling zzle init"
+	zzle init
+	echo "Calling zzle map"
+	zzle map zmenu
 }
 
 __zmenu_select(){
@@ -5567,7 +5573,9 @@ __zmenu_exec_select(){
 	local key
 
 	while true; do
-		__zmenu_get_key key
+		zterm cursor position $zm_pos_zle 1
+
+		zzle read zmenu key
 
 		case $key in;
 			UP)     __zmenu_item_prev;;
@@ -5577,14 +5585,14 @@ __zmenu_exec_select(){
 			HOME)   __zmenu_item_first;;
 			END)    __zmenu_item_last;;
 
-			ALL)    __zmenu_item_select_all;;
-			NONE)   __zmenu_item_select_none;;
-			INVERT) __zmenu_item_select_invert;;
+			CTRL_A) __zmenu_item_select_all;;
+			CTRL_N)   __zmenu_item_select_none;;
+			CTRL_I) __zmenu_item_select_invert;;
 
 			SPACE)  __zmenu_item_select_toggle 0;;
 			ENTER)  __zmenu_item_select_toggle 1 && break ;;
 
-			ACCEPT) break ;;
+			CTRL_X) break ;;
 			ESCAPE) break ;;
 			BREAK)  break ;;
 
@@ -5600,32 +5608,6 @@ __zmenu_exec_select(){
 	zterm cursor restore
 
 	__zmenu_selection=(${(@n)${(@k)zm_selected[(R)1]}})
-}
-
-__zmenu_get_key(){
-	local key_storage=$1
-	local key_map=menu_keymap
-	local zle_prompt=()
-	local menu_input
-	local old_keytimout=$KEYTIMEOUT
-
-	zterm cursor position $zm_pos_zle 1
-
-	setopt SINGLE_LINE_ZLE
-	export KEYTIMEOUT=100
-
-
-	vared \
-		-M $key_map $zle_prompt \
-		-i __zmenu_vared_init   \
-		-f __zmenu_vared_finish \
-		menu_input
-
-
-	KEYTIMEOUT=$old_keytimout
-
-	eval "${key_storage}=\"$__ZMENU_ZLE_CODE\""
-
 }
 
 __zmenu_item_select(){
@@ -5956,10 +5938,51 @@ __zmenu_item_last(){
 }
 
 
+###############################################
+#  zle functions
+#
+zzle(){
+	local zzle_cmd=$1; shift
+
+	case $zzle_cmd in
+		init)  __zzle_init "$@";;
+		read)  __zzle_read "$@";;
+		map)   __zzle_map  "$@";;
+	esac
+}
+
+__zzle_init(){
+	__zzle_load_widgets
+}
+
+__zzle_read(){
+	local __zzle_container=$2
+	local __zzle_key_map=${1:-default_keymap}
+	local __zzle_prompt=()
+	local __zzle_input
+	local __zzle_old_keytimout=$KEYTIMEOUT
+	local __zzle_key_code=''
+
+	setopt SINGLE_LINE_ZLE
+	export KEYTIMEOUT=100
+
+	vared \
+		-M $__zzle_key_map $__zzle_prompt \
+		-i __zzle_vared_init   \
+		-f __zzle_vared_finish \
+		__zzle_input
+
+	KEYTIMEOUT=$__zzle_old_keytimout
+
+	eval "${__zzle_container}=\"$__zzle_key_code\""
+}
+
+
 #
 # zle initialization
 #
-__zmenu_zle_init(){
+__zzle_map(){
+	local key_map=$1; shift
 
 	# list of key names as defined in terminfo for
 	# bsd and linux
@@ -5999,153 +6022,163 @@ __zmenu_zle_init(){
 	#
 	# create new EMPTY keymap
 	#
-	bindkey -N menu_keymap
+	bindkey -N $key_map
 
 	# menu movement keys
 	#
-	bindkey -M menu_keymap "[A"            __zmenu_zle_up             # UP
-	bindkey -M menu_keymap "[B"            __zmenu_zle_down           # DOWN
+	bindkey -M $key_map "[A"            __zzle_key_up             # UP
+	bindkey -M $key_map "[B"            __zzle_key_down           # DOWN
 
-	bindkey -M menu_keymap "$seq[up]"        __zmenu_zle_up             # UP
-	bindkey -M menu_keymap "$seq[down]"      __zmenu_zle_down           # DOWN
-	bindkey -M menu_keymap "$seq[home]"      __zmenu_zle_home           # HOME
-	bindkey -M menu_keymap "$seq[end]"       __zmenu_zle_end            # END
-	bindkey -M menu_keymap "$seq[page-up]"   __zmenu_zle_page_up        # PgUp
-	bindkey -M menu_keymap "$seq[page-down]" __zmenu_zle_page_down      # PgDown
+	# menu movement keys
+	#
+	bindkey -M $key_map "$seq[up]"        __zzle_key_up             # UP
+	bindkey -M $key_map "$seq[down]"      __zzle_key_down           # DOWN
+	bindkey -M $key_map "$seq[home]"      __zzle_key_home           # HOME
+	bindkey -M $key_map "$seq[end]"       __zzle_key_end            # END
+	bindkey -M $key_map "$seq[page-up]"   __zzle_key_page_up        # PgUp
+	bindkey -M $key_map "$seq[page-down]" __zzle_key_page_down      # PgDown
 
 	# <ENTER> and <SPACE> are selection keys
 	#
-	bindkey -M menu_keymap ""    __zmenu_zle_accept                   # CTRL+X
-	bindkey -M menu_keymap ""    __zmenu_zle_enter                    # <ENTER>
-	bindkey -M menu_keymap ""    __zmenu_zle_all                      # CTRL+A
-	bindkey -M menu_keymap ""    __zmenu_zle_none                     # CTRL+U
-	bindkey -M menu_keymap "^I"    __zmenu_zle_invert                   # CTRL+I
-	bindkey -M menu_keymap " "     __zmenu_zle_space                    # <SPACE>
-
-	# activate ESCAPE & CTRL+C
+	#  CTRL+X accept selection
+	#  CTRL+A select ALL
+	#  CTRL+N select NONE
+	#  CTRL+I invert selection
 	#
-	# bindkey -M menu_keymap "\e"    __zmenu_zle_escape                   # <ESCAPE>
-	bindkey -M menu_keymap ""    __zmenu_zle_break                    # CTRL+C
+	bindkey -M $key_map ""    __zzle_key_CTRL_X                   # CTRL+X
+	bindkey -M $key_map ""    __zzle_key_CTRL_A                   # CTRL+A
+	bindkey -M $key_map ""    __zzle_key_CTRL_N                   # CTRL+U
+	bindkey -M $key_map "^I"    __zzle_key_CTRL_I                   # CTRL+I
 
+	bindkey -M $key_map ""    __zzle_key_enter                    # <ENTER>
+	bindkey -M $key_map " "     __zzle_key_space                    # <SPACE>
+
+	# activate CTRL+C
+	#
+	bindkey -M $key_map ""    __zzle_key_break                    # CTRL+C
+}
+
+__zzle_load_widgets(){
 
 	###################################
 	# define functions as zle widgets
 	#
-	zle -N __zmenu_zle_up
-	zle -N __zmenu_zle_down
-	zle -N __zmenu_zle_home
-	zle -N __zmenu_zle_end
-	zle -N __zmenu_zle_page_up
-	zle -N __zmenu_zle_page_down
+	zle -N __zzle_key_up
+	zle -N __zzle_key_down
+	zle -N __zzle_key_home
+	zle -N __zzle_key_end
+	zle -N __zzle_key_page_up
+	zle -N __zzle_key_page_down
 
-	zle -N __zmenu_zle_space
-	zle -N __zmenu_zle_enter
-	zle -N __zmenu_zle_accept
+	zle -N __zzle_key_space
+	zle -N __zzle_key_enter
 
-	zle -N __zmenu_zle_all
-	zle -N __zmenu_zle_none
-	zle -N __zmenu_zle_invert
+	zle -N __zzle_key_CTRL_X
+	zle -N __zzle_key_CTRL_A
+	zle -N __zzle_key_CTRL_N
+	zle -N __zzle_key_CTRL_I
 
-	zle -N __zmenu_zle_escape
-	zle -N __zmenu_zle_break
+	zle -N __zzle_key_escape
+	zle -N __zzle_key_break
 
-	zle -N __zmenu_vared_init
-	zle -N __zmenu_vared_finish
+	zle -N __zzle_vared_init
+	zle -N __zzle_vared_finish
 }
 
 
 #
 # zle widgets
 #
-__zmenu_zle_up(){
-	__ZMENU_ZLE_CODE='UP'
+__zzle_key_up(){
+	__zzle_key_code='UP'
 	zle accept-line
 }
 
-__zmenu_zle_down(){
-	__ZMENU_ZLE_CODE='DOWN'
+__zzle_key_down(){
+	__zzle_key_code='DOWN'
 	zle accept-line
 }
 
-__zmenu_zle_home(){
-	__ZMENU_ZLE_CODE='HOME'
+__zzle_key_home(){
+	__zzle_key_code='HOME'
 	zle accept-line
 }
 
-__zmenu_zle_end(){
-	__ZMENU_ZLE_CODE='END'
+__zzle_key_end(){
+	__zzle_key_code='END'
 	zle accept-line
 }
 
-__zmenu_zle_page_up(){
-	__ZMENU_ZLE_CODE='PgUp'
+__zzle_key_page_up(){
+	__zzle_key_code='PgUp'
 	zle accept-line
 }
 
-__zmenu_zle_page_down(){
-	__ZMENU_ZLE_CODE='PgDown'
-	zle accept-line
-}
-
-
-__zmenu_zle_space(){
-	__ZMENU_ZLE_CODE='SPACE'
-	zle accept-line
-}
-
-__zmenu_zle_enter(){
-	__ZMENU_ZLE_CODE='ENTER'
-	zle accept-line
-}
-
-__zmenu_zle_accept(){
-	__ZMENU_ZLE_CODE='ACCEPT'
+__zzle_key_page_down(){
+	__zzle_key_code='PgDown'
 	zle accept-line
 }
 
 
-__zmenu_zle_all(){
-	__ZMENU_ZLE_CODE='ALL'
+__zzle_key_space(){
+	__zzle_key_code='SPACE'
 	zle accept-line
 }
 
-__zmenu_zle_none(){
-	__ZMENU_ZLE_CODE='NONE'
-	zle accept-line
-}
-
-__zmenu_zle_invert(){
-	__ZMENU_ZLE_CODE='INVERT'
+__zzle_key_enter(){
+	__zzle_key_code='ENTER'
 	zle accept-line
 }
 
 
-__zmenu_zle_escape(){
-	__ZMENU_ZLE_CODE='ESCAPE'
+__zzle_key_CTRL_X(){
+	__zzle_key_code='CTRL_X'
 	zle accept-line
 }
 
-__zmenu_zle_break(){
-	__ZMENU_ZLE_CODE='BREAK'
+__zzle_key_CTRL_A(){
+	__zzle_key_code='CTRL_A'
+	zle accept-line
+}
+
+__zzle_key_CTRL_N(){
+	__zzle_key_code='CTRL_N'
+	zle accept-line
+}
+
+__zzle_key_CTRL_I(){
+	__zzle_key_code='CTRL_I'
 	zle accept-line
 }
 
 
-__zmenu_vared_init(){
+__zzle_key_escape(){
+	__zzle_key_code='ESCAPE'
+	zle accept-line
+}
+
+__zzle_key_break(){
+	__zzle_key_code='BREAK'
+	zle accept-line
+}
+
+
+__zzle_vared_init(){
 	# stop terminal from sending INT
 	# signal when CTRL+C is pressed
 	#
 	zterm intr off
 
-	__ZMENU_ZLE_CODE=''
+	__zzle_key_code=''
 }
 
-__zmenu_vared_finish(){
+__zzle_vared_finish(){
 	# reenable terminal to send INT
 	# signal when CTRL+C is pressed
 	#
 	zterm intr restore
 }
+
 
 ############################
 # parse arguments
@@ -6218,34 +6251,7 @@ parse_arguments(){
 }
 
 parse_arguments $@
-bls_init
-
-# clear
-# echo
-# echo
-# echo $$
-# echo
-# echo
-# sleep 60 &
-# zprogress wait $! "Waiting for sleep to end"
-# 
-# exit
-
-
 
 [[ $BLS_COMMAND != help ]] && bls_init
-# echo "--------------------------"
-# zmenu select item \
-# 	--color " green mama . red b n" \
-# 	--align " l l" \
-# 	--header "Prvi;Drugi" \
-# 	"Jedan 1;Dva 1;Tri 1"\
-# 	"Jedan 1;Dva 1;Tri 1;Cetiri 1;Pet 1" \
-# 	"Jedan 1 xxxxxx;Dva 1 yyyyyyy;Tri 1 zzzzzz;Cetiri 1 wwwww;Pet 1 ooooooooo;Sest 1  hh;Sedam 1 p" \
-# 	"Jedan 1;Dva 1" \
-# 	"Jedan 1;Dva 1;Tri 1;Cetiri 1"\
-# 	"Jedan 1"
-# echo -n "OOOOOO"
-# read -s a
 
 exec_${BLS_COMMAND} ${BLS_ARGS}
