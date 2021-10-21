@@ -3540,7 +3540,6 @@ select_smb_server(){
 	local parts
 
 	for server in "${(@)smb_servers}"; do
-		echo "SERVER: $server"
 		parts=("${(@s:;:)server}")
 		servers+=("$parts[2];$parts[1];")
 	done
