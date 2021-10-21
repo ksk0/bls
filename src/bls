@@ -266,9 +266,8 @@ exec_restore(){
 	check_for_bls_instance
 	get_run_mode
 
-	clear
+	clear;echo
 
-	echo
 	free_samba_mount
 	free_restore_mounts
 
@@ -326,9 +325,8 @@ exec_list(){
 	menu_prompt+="[${color_g}ENTER: ${color_n}exit] "
 	menu_prompt+="[${color_g}CTRL+C: ${color_n}exit]"
 
-	clear
+	clear; echo
 
-	echo
 	echo
 	zmenu select void\
 		--focus 1 \
@@ -495,7 +493,7 @@ exec_test(){
 	# SAMBA_LOGIN=""
 	# SAMBA_PASSWD=""
 
-	exec_delete "$@"
+	exec_list "$@"
 	# exec_backup "$@"
 	# exec_restore "$@"
 	# exec_list "$@"
@@ -1333,9 +1331,34 @@ get_list_of_backups(){
 	while read backup; do
 		btype=$(cat $backup/.bls-backup)
 		desc=$(cat $backup/.description)
-		size=$(du -ms $backup/system-image.tar.gz 2>/dev/null | awk '{printf "%.1f\n", $1 / 1024}')
+		size=$(
+			du -ks $backup 2>/dev/null |
+			awk '{
+				suffix = "K"
+				size = $1
 
-		[[ -n $size ]] && size="${size}G"
+				if (size > 1024){
+					suffix = "M"
+					size = size / 1024
+				}
+
+				if (size > 1024){
+					suffix = "G"
+					size = size / 1024
+				}
+
+				if (size > 1024){
+					suffix = "T"
+					size = size / 1024
+				}
+
+				if (suffix == "T" || suffix == "G")
+					printf "%.1f %s\n", size, suffix
+				else
+					printf "%.0f %s\n", size, suffix
+				
+			}'
+		)
 
 		backup=${backup#$SAMBA_MOUNT/}
 		backup=${backup//\//;}
@@ -1670,7 +1693,6 @@ delete_backups(){
 
 	zterm cursor off
 
-	# clear
 	for i in {1..$#__selected}; do
 		zterm cursor position 1 1
 
@@ -1746,22 +1768,50 @@ show_backup_storage_usage(){
 		perl -ne '
 			next if ($. == 1);
 			/^.*?\s+(\d+)M\s+(\d+)M\s+(\d+)M\s/;
-			$s_total = $1;
-			$s_used  = $2;
-			$s_free  = $3;
+			
+			printf ("%d:%d:%d\n", $1, $2, $3)
+		' |
 
-			$p_used = int ((100 * $s_used / $s_total) + 0.5);
-			$p_free = int ((100 * $s_free / $s_total) + 0.5);
+		awk -F: '
+			function suffix_size (size){
+				suffix = "M"
 
-			$g_total = int (10 * $s_total / 1024) / 10;
-			$g_used  = int (10 * $s_used  / 1024) / 10;
-			$g_free  = int (10 * $s_free  / 1024) / 10;
+				if (size > 1024){
+					suffix = "G"
+					size = size / 1024
+				}
 
-			printf "%5.1fG\n", $g_total;
-			printf "%5.1fG (%2d%%)\n", $g_used, $p_used;
-			printf "%5.1fG (%2d%%)\n", $g_free, $p_free;
+				if (size > 1024){
+					suffix = "T"
+					size = size / 1024
+				}
 
-			exit;
+				s_size = sprintf ("%5.1f %s", size, suffix)
+
+				return s_size
+			}
+
+			{
+
+				total = $1;
+				used  = $2;
+				free  = $3;
+
+				p_used = int ((100 * used / total) + 0.5);
+				p_free = int ((100 * free / total) + 0.5);
+
+				# $g_total = int (10 * $s_total / 1024) / 10;
+				# $g_used  = int (10 * $s_used  / 1024) / 10;
+				# $g_free  = int (10 * $s_free  / 1024) / 10;
+
+				total = suffix_size(total)
+				used  = suffix_size(used)
+				free  = suffix_size(free)
+
+				printf "%s\n", total;
+				printf "%s (%3d%%)\n", used, p_used;
+				printf "%s (%3d%%)\n", free, p_free;
+			}
 		'
 	)}")
 
