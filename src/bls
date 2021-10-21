@@ -1586,7 +1586,6 @@ backup_list_config(){
 	if [[ ! $tar_backup =~ '^Failed with (item|root):' ]]; then
 		BLS_BACKUP_INCLUDE=("${(@o)tar_backup}")
 
-		# echo ${(j:\n:)BLS_BACKUP_INCLUDE}
 		return
 	fi
 
@@ -3527,8 +3526,6 @@ select_smb_server(){
 		zprogress wait $! "Collecting samba servers on network"
 	)}")
 
-
-
 	if [[ -z $smb_servers ]]; then
 		echo
 		print_box "Failed to find any samba server on network!"
@@ -3537,8 +3534,16 @@ select_smb_server(){
 		exit 1
 	fi
 
-	local servers=(${(@)smb_servers#*;})
+	local server
+	local servers=()
 	local smb_server
+	local parts
+
+	for server in "${(@)smb_servers}"; do
+		echo "SERVER: $server"
+		parts=("${(@s:;:)server}")
+		servers+=("$parts[2];$parts[1];")
+	done
 
 	echo
 	zmenu select smb_server \
@@ -3546,6 +3551,7 @@ select_smb_server(){
 		--width 57  \
 		--color "b y" \
 		--align "r l" \
+		--spaces "1 ' [' ']'" \
 		--title "${color_b}Select server:" \
 		$servers
 
@@ -4739,9 +4745,7 @@ zmenu(){
 }
 
 __zmenu_init(){
-	echo "Calling zzle init"
 	zzle init
-	echo "Calling zzle map"
 	zzle map zmenu
 }
 
